@@ -1,0 +1,10 @@
+Metadata-Version: 1.0
+Name: VPlants.TreeEditor
+Version: 0.1.0
+Summary: TreeEditor provides user interfaces to visualize and edit tree struture (stored as mtg)
+Home-page: none
+Author: Julien Diener, Frederic Boudon
+Author-email: julien.diener@inria.fr, frederic.boudon@inria.fr
+License: Cecill-C
+Description: The VPlants.TreeEditor provides user interfaces to visualize and edit tree struture (stored as mtg)
+Platform: UNKNOWN
