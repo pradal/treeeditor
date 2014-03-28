@@ -1,18 +1,36 @@
 """
 Implement TreeModel(s)
 """
+from openalea.mtg import algo as _mtgalgo
+from openalea.mtg import MTG  as _MTG
+from treeeditor import io
+from treeeditor.mvp import Model as _Model
 
-class TreeModel(object):
+class TreeModel(_Model):
     """
-    TreeModel implement the interaction with a tree represented by an mtg
+    TreeModel are generalized interface for (axial) trees stored as mtg
     
-    The mtg is expected to have a set of segments at the highest scale, each
-    with the associated position of the last node of the segment.
-
-    Its purpose is to be used by TreeVC, ControlPointsView and EdgesView
+    The purpose of a TreeModel is to provide a standard interface to read and 
+    edit the tree mtg by a TreePresenter. It provides two main features:
+      - A standardized IO API to the segments positions
+      - Compared to a general mtg, it models an axial tree: each vertex has at
+        most one successor child (i.e. with edge_type='<')
+    
+    Note that it manages explicitly only the highest scale: the tree segments.
+    The other scale are implicitely maintained by the MTG procedures. But if a
+    specific behavior is expected, a subclass should be implemented for that
+    purpose.
+    
+    Expected mtg format:
+      - The highest scale should contain a set of segments, each with associated 
+        attributes giving the position of the (last) node of the segment, and 
+        optional radius. These can be stored in several ways. 
+        See `select_mtg_api` for details
+      - It should represent an axial tree: each segment have maximum 1 successor 
+        child (edge_type='<') but any number of branch children (edge_type='+')
     """
     
-    def __init__(self, mtg, position=None, radius=None):
+    def __init__(self, presenter=None, mtg=None, position=None, radius=None):
         """ create a TreeModel to interact with given `mtg` 
         
         `mtg`: 
@@ -35,32 +53,26 @@ class TreeModel(object):
         self.backupmtg = []
         self.maxbackup = 4
 
+        self.set_presenter(presenter)
+        
         if isinstance(mtg,basestring):
             self.load_mtg(mtg,position=position,radius=radius)
         else:
             self.set_mtg(mtg,None,position=position,radius=radius)
             
         
-    def register_controler(self, controler):
-        """ attache this TreeModel to `controler` """
-        self._controler = controler
-        
-        if self.mtg:
-            self._controler.update_views('reset')
         
     def set_mtg(self,mtg,filename=None, position=None, radius=None):
         """ set the `mtg` of this TreeModel """
-        self.mtg       = mtg
-        self.mtgfile   = filename
-        
-        self.select_mtg_api(self, position=position, radius=radius)
-        
-        if self._controler is not None:
-            self._controler.update_views('reset')
+        if mtg is None:
+            # create a default mtg with one 'segment' vertex
+            mtg = _MTG()
+            vid = mtg.add_component(mtg.root, position=(0,0,0), radius=1)
             
-        ## for generation of load/save dialogs
-        ##__save_api__ = [self.save_mtg, ... ??
-        ## return dict(save=[...],load=...) ??? 
+        self.mtg     = mtg
+        self.mtgfile = filename
+        
+        self.select_mtg_api(position=position, radius=radius)
             
     def select_mtg_api(self, position=None, radius=None):
         """ select position and radius api:
@@ -91,7 +103,7 @@ class TreeModel(object):
             elif 'position' in prop:
                 position = 'position'
             else:
-                raise IOError("could not find position properties: either XX,YY,ZZ ; x,y,z ; position"
+                raise IOError("could not find position properties: either XX,YY,ZZ ; x,y,z ; position")
                     
         # autodetect position
         if radius is None:
@@ -112,35 +124,27 @@ class TreeModel(object):
             self.set_position = self.set_position_triplet
 
 
-    def default_directory(self):
-        """ return a default directory to look for mtg files """
-        import os
-        if self.mtgfile:
-            return os.path.dirname(self.mtgfile)
-        else:
-            return io.get_shared_data('mtgdata')
-        
     # position and radius accessors
     # -----------------------------
-    def get_position_tuple(self, vertex_id):
+    def get_position_tuple(self, vertex):
         """ get position stored as vectors """
-        return self.mtg.property(self.position_property)[vertex_id]
-    def get_position_triplet(self, vertex_id):
+        return self.mtg.property(self.position_property)[vertex]
+    def get_position_triplet(self, vertex):
         """ get position stored in 3 properties """
         position = map(self.mtg.property,self.position_property)
-        return [coordinate[vertex_id] for coordinate in position]
-    def set_position_tuple(self, vertex_id, position):
+        return [coordinate[vertex] for coordinate in position]
+    def set_position_tuple(self, vertex, position):
         """ set position stored as vectors """
-        self.mtg.property(self.position_property)[vertex_id] = tuple(position)
-    def set_position_triplet(self, vertex_id, position):
+        self.mtg.property(self.position_property)[vertex] = tuple(position)
+    def set_position_triplet(self, vertex, position):
         """ set position stored in 3 properties """
         position_properties = map(self.mtg.property,self.position_property)
         for coordinate,value in zip(position_properties,position):
-            coordinate[vertex_id] = value
+            coordinate[vertex] = value
             
-    def get_radius(self, vertex_id)
-        """ return radius of vertex `vertex_id` """
-        return self.mtg.property(self.radius_property).setdefault(vertex_id,1)
+    def get_radius(self, vertex):
+        """ return radius of vertex `vertex` """
+        return self.mtg.property(self.radius_property).setdefault(vertex,1)
         
         
     # vertex ids accessors
@@ -156,15 +160,158 @@ class TreeModel(object):
     def children(self,vid):
         """ return the list of ids of the children vertices of `vid` """
         return self.mtg.children(vid)
+    def successor(self,vid):
+        """ return the id of the successor ('<') child of `vid` (or None) """
+        children = dict((self.mtg.edge_type(c),c) for c in self.mtg.children(vid))
+        return children.get('<',None)
+        
+    def siblings(self,vid):
+        """ return the list of ids of the children vertices of `vid` """
+        return self.mtg.siblings(vid)
+        
+    # mtg edition
+    # -----------
+    def add_successor(self, vertex, position):
+        """ add a successor (i.e. edge_type '<') to vertex `vertex` 
+        
+        return 
+          - the id of the created vertex
+          - the set of updated vertices
+        """
+        # set all existing successors as branching
+        edge_type = self.mtg.property('edge_type')
+        successors = [vid for vid in self.mtg.children(vertex) if edge_type[vid]=='<']
+        for s in successors:
+            edge_type[child] = '+'
+        updated = set(successors)
+            
+        # add new successor
+        child = self.mtg.add_child(vertex,edge_type='<')
+        self.set_position(child,position)
+        updated.add(child)
+        updated.add(vertex)
+        
+        return child, updated
+        
+    def add_branching(self, vertex, position):
+        """ add a branching vertex (i.e. edge_type '+') to vertex `vertex` 
+        
+        return 
+          - the id of the created vertex
+          - the set of updated vertices
+        """
+        child = self.mtg.add_child(vertex,edge_type='+')
+        self.set_position(child,position)
+        
+        return child, set([child, vertex])
+    
+    def insert_parent(self, child, position):
+        """
+        Insert a new vertex as parent of `child`
+        
+        The new vertex has same edge_type as `child` and `child` becomes
+        the axial child (successor) of the new vertex.
+        
+        return 
+          - the id of the created vertex
+          - the set of updated vertices
+        """
+        parent = self.parent(child)
+        vertex = self.mtg.insert_parent(child)
+        self.set_position(vertex, position)
+        
+        up = set([child,vertex,parent])
+        child_edge = self.mtg.edge_type(child)
+        up.update(self.replace_parent(child,  vertex, edge_type='<'))
+        up.update(self.replace_parent(vertex, parent, edge_type=child_edge))
+
+        return vertex, up
+        
+        
+    def replace_parent(self, vertex, new_parent, edge_type=None):
+        """ set the parent of `vertex` by `new_parent` 
+        
+        Set the edge_type of `vertex` to `edge_type`. If None (or not given),
+        it select successor edge_type ('<') if the new parent does not already 
+        have one. And it selects branching edge_type ('+') otherwise.
+        If edge_type is '<', existing succesor of parent is set to branching.
+        
+        return the set of updated vertices
+        """
+        if new_parent in _mtgalgo.descendants(self.mtg,vertex):
+            raise TypeError("Invalid parent: cannot reparent a node with one of its descendants")
+            
+        if edge_type is None:
+            if self.successor(new_parent):
+                edge_type = '+'
+            else:
+                edge_type = '<'
+        updated = [vertex, new_parent]
+        
+        # assert parent has no other successor
+        mtg_edge_type = self.mtg.property('edge_type')
+        if edge_type=='<':
+            successors = [vid for vid in self.mtg.children(new_parent) if mtg_edge_type[vid]=='<']
+            print [(vid,mtg_edge_type[vid]) for vid in self.mtg.children(new_parent)]
+            for s in successors:
+                mtg_edge_type[s] = '+'
+            updated.extend(successors)
+            
+        self.mtg.replace_parent(vertex, new_parent)
+        mtg_edge_type[vertex] = edge_type
+            
+        return set(updated)
+                    
+    def remove_vertex(self, vertex, reparent_child=True):
+        """ remove `vertex` from tree 
+        
+        If `reparent_children` is False, `vertex` should not have child.
+        Otherwise, if vertex is a successor or if parent had no successor, 
+        children keep their edge_type.
+        otherwise, all children become branch edge_type (+)
+        
+        return the set of updated vertices
+        """
+        parent = self.parent(vertex)
+        updated = set([parent]+self.children(vertex))
+        
+        if self.mtg.edge_type(vertex)=='+' and self.successor(parent) is not None:
+            s = self.successor(vertex)
+            if s:
+                self.mtg.property('edge_type')[s] = '+'
+        
+        self.mtg.remove_vertex(vertex, reparent_child=reparent_child)
+
+        return updated
+        
+    def remove_tree(self, vertex):
+        """ remove the subtree rooted at `vertx` 
+        
+            return the set of delted vertices
+        """
+        removed = _mtgalgo.descendants(self.mtg, vertex)
+        self.mtg.remove_tree(vertex)
+        return set(removed)
         
     # appearance
     # ----------
     def color(self, vid):
-        """ return the color associated to `vid`, as a rgb tiplet tuple """ 
-        if self.mtg.edge_type(vid)=='>': # successor
-            return  (255,255,255)
+        """ return the color associated to `vid`
+        
+        Standard TreeEditor Theme are, either:
+         - one of the (string) key of treeeditor.THEME, such as 'default',  
+           'highlight', 'highlight2'
+         - an integer that is use to lookup in a colormap such that 
+           THEME['colormap']
+           
+        TreeModel colors are:
+         - 'default'   if `vid` is a successor
+         - 'highlight' if `vid` is a branching vertex
+        """ 
+        if self.mtg.edge_type(vid)=='<': # successor
+            return 'default'
         else:                            # branching
-            return (255,255,0)
+            return 'highlight'
 
     # file IO
     # -------
@@ -223,9 +370,17 @@ class TreeModel(object):
         return newg, properties
     
     
+    def default_directory(self):
+        """ return a default directory to look for mtg files """
+        import os
+        if self.mtgfile:
+            return os.path.dirname(self.mtgfile)
+        else:
+            return io.get_shared_data('mtgdata')
+        
     # backup and undo
     # ---------------
-    def createBackup(self):
+    def push_backup(self):
         """ push a copy of current mtg in undo list (i.e. backup) """ 
         from copy import deepcopy
         if len(self.backupmtg) == self.maxbackup:
@@ -236,10 +391,240 @@ class TreeModel(object):
         """ pop last backed up mtg """         
         if len(self.backupmtg) > 0:
             self.mtg = self.backupmtg.pop()
-            self._controler.update_views('reset')
-        ##else:                                        
-        ##    self.showMessage("No backup available.")
+            return True
+        else:
+            return False
         
 
 
-## end
+
+class PASModel(TreeModel):
+    """ A TreeModel which manages the Plant,Axe,Segment scales """
+    
+    def set_mtg(self,mtg,filename=None, position=None, radius=None):
+        """ set the `mtg` of this PASModel """
+        if mtg is None:
+            # create a default mtg with one plant, axe and segment vertices
+            mtg = _MTG()
+            pid = mtg.add_component(mtg.root)
+            aid = mtg.add_component(pid)
+            sid = mtg.add_component(aid, position=(0,0,0), radius=1)
+            
+        return TreeModel.set_mtg(self,mtg=mtg,filename=filename,position=position,radius=radius)
+        
+    # mtg accessor
+    # ------------
+    def get_axe(self, segment):
+        """ return the axe id which own `segment` """
+        return self.mtg.complex(segment)
+    
+    # mtg edition
+    # -----------
+    def add_branching(self, segment, position):
+        """ add a branching vertex (i.e. edge_type '+') to `segment` 
+
+        And add an axe accordingly
+        
+        return 
+          - the id of the created segment
+          - the set of updated segment
+        """
+        parent_axe = self.get_axe(segment)
+        child_seg,child_axe = self.mtg.add_child_and_complex(segment, edge_type='+')
+        self.mtg.property('edge_type')[child_axe] = '+'
+        self.set_position(child_seg,position)
+        
+        return child_seg, set([child_seg, segment])
+    
+    def insert_parent(self, child, position):
+        """
+        Insert a new vertex as parent of `child`
+        
+        The new vertex is part of the same axe (and edge_type) as 'child'
+        and `child` becomes its successor.
+        
+        return 
+          - the id of the created vertex
+          - the set of updated vertices
+        """
+        vertex, up = TreeModel.insert_parent(self, child, position)
+        
+        ##parent = self.parent(child)
+        ##vertex = self.mtg.insert_parent(child)
+        ##self.set_position(vertex, position)
+        ##
+        ##up = set([child,vertex,parent])
+        ##child_edge = self.mtg.edge_type(child)
+        ##up.update(self.replace_parent(child,  vertex, edge_type='<')[1])
+        ##up.update(self.replace_parent(vertex, parent, edge_type=child_edge)[1])
+
+        return vertex, up
+        
+        
+    def replace_parent(self, segment, new_parent, edge_type=None):
+        """ set the parent of `segment` by `new_parent` 
+        
+        Set the edge_type of `segment` to `edge_type`. If None (or not given),
+        it select successor edge_type ('<') if the new parent does not already 
+        have one. And it selects branching edge_type ('+') otherwise.
+        If edge_type is '<', existing succesor of parent is set to branching.
+        
+        New axes are create if necessary
+        
+        return the set of updated vertices
+        """
+        prev_parent = self.parent(segment)
+        up = TreeModel.replace_parent(self,segment,new_parent, edge_type)
+        
+        self._check_connection_validity(new_parent, up)
+
+        # case where part of an axe has be attached as a branch to another
+        # axe. The previous step find nothing but the *separeted* segments still 
+        # have the same axe complex as its previous ancestor segments
+        if prev_parent!=new_parent and self.get_axe(segment)==self.get_axe(prev_parent):
+            self._new_axe_branch(segment, up)
+            
+
+        return up
+        
+    def remove_vertex(self, segment, reparent_child=True):
+        """ remove `segment` from tree 
+        
+        If `reparent_children` is False, `segment` should not have child.
+        Otherwise, reparent children preserving axe scale.
+        
+        return the set of updated vertices
+        """
+        parent = self.parent(segment)
+        children = self.children(segment)
+        up = TreeModel.remove_vertex(self, segment, reparent_child)
+        self._check_connection_validity(parent, up)
+        
+        return up
+        
+    # private edition
+    # ---------------
+    # used internally by public edition methods
+    def _new_axe_branch(self, child, up):
+        """ create missing branch axe 
+        segment scale should be already connected 
+        """
+        parent_axe = self.get_axe(self.parent(child))
+        new_branch = self.mtg.add_child(parent_axe, edge_type='+')
+        successors = list(_mtgalgo.local_axis(self.mtg,child))
+        up.update(successors)
+        
+        self._change_axe(successors, new_branch)
+            
+    def _change_axe(self, successors, axe):
+        """ attach all sucessors to axe - blindly - """
+        ## how to change complex properly??!
+        mtg_axe = self.mtg._complex
+        axe_seg = self.mtg._components.setdefault(axe,[])
+        for sid in successors:
+            mtg_axe[sid] = axe
+            axe_seg.append(sid)
+
+    def _check_connection_validity(self, segment, up):
+        """ check for structural validity of axe scale """
+        edge = lambda vid: self.mtg.edge_type(vid)
+        
+        segment_axe = self.get_axe(segment)
+        
+        for child in self.children(segment):
+            child_axe = self.get_axe(child)
+            if edge(child)=='<' and child_axe!=segment_axe:
+                # successor should have same axe as parent
+                successors = list(_mtgalgo.local_axis(self.mtg,child))
+                up.update(successors)
+                
+                self._change_axe(successors, segment_axe)
+                    
+            elif edge(child)=='+' and child_axe==segment_axe:
+                # branch should not have same axe as parent 
+                self._new_axe_branch(child, up)
+
+    ##todo: 1. remove empty axe/plants
+    ##      2. insert_parent
+    ##      3. remove_tree (seems to works - at lest check 1)
+    
+    # appearance
+    # ----------
+    def color(self, segment):
+        """ return the color associated to `segment`
+
+        PASModel colors are the axe id to which `segment` is part of
+
+        See also: TreeModel.color
+        """ 
+        return self.get_axe(segment)
+
+# ----
+# test
+# ----
+def test_PASModel_add_branching():
+    m = PASModel()
+    s0 = m.get_nodes()[0]
+    s1 = m.add_branching(s0,(1,0,0))[0]
+    
+    g  = m.mtg
+    a0 = g.complex(s0)
+    a1 = g.complex(s1)
+    edg = g.property('edge_type')
+    
+    assert g.parent(s1)==s0, 'parent of new segment is not correct'
+    assert g.parent(a1)==a0, 'parent of new axe is not the axe of parent segment'    
+    assert edg[s1]=='+', 'new segment is not a branch'
+    assert edg[a1]=='+', 'new axe is not a branch'
+    assert g.complex(g.parent(s1))==g.parent(g.complex(s1)), 'branching &| parenting is not correct'
+    
+
+def test_TreeModel_remove_successor():
+    # test remove successor => child should keep edge_type
+    m = TreeModel()
+    v1 = m.get_nodes()[0]
+    v2 = m.add_successor(v1,(0,0,0))[0] 
+    v3 = m.add_successor(v2,(0,0,0))[0]
+    v4 = m.add_successor(v3,(0,0,0))[0]
+    v5 = m.add_branching(v3,(0,0,0))[0]
+    
+    up = m.remove_vertex(v3)
+    
+    edg = m.mtg.property('edge_type')
+    assert edg[v4]=='<',  'successor of removed vertex is not successor anymore'
+    assert edg[v5]=='+',  'branch child of removed vertex is not branch anymore'
+    assert up==set((v2,v4,v5)), 'unexpected update node list:'+str(up)
+    
+def test_TreeModel_remove_branch_no_successor_sibling():
+    # test remove branch & parent has not successor => children keep edge_type
+    m = TreeModel()
+    v1 = m.get_nodes()[0]
+    v2 = m.add_successor(v1,(0,0,0))[0]
+    v3 = m.add_branching(v2,(0,0,0))[0]
+    v4 = m.add_successor(v3,(0,0,0))[0]
+    v5 = m.add_branching(v3,(0,0,0))[0]
+    
+    up = m.remove_vertex(v3)
+    
+    edg = m.mtg.property('edge_type')
+    assert edg[v4]=='<',  'successor of removed vertex is not successor anymore'
+    assert edg[v5]=='+',  'branch child of removed vertex is not branch anymore'
+    assert up==set((v2,v4,v5)), 'unexpected update node list:'+str(up)
+    
+def test_TreeModel_remove_branch_with_successor_sibling():
+    # test remove branch & parent has successor => children should all be '+'
+    m = TreeModel()
+    v1 = m.get_nodes()[0]
+    v2 = m.add_successor(v1,(0,0,0))[0]
+    v2s= m.add_successor(v2,(0,0,0))[0]
+    v3 = m.add_branching(v2,(0,0,0))[0]
+    v4 = m.add_successor(v3,(0,0,0))[0]
+    v5 = m.add_branching(v3,(0,0,0))[0]
+    
+    up = m.remove_vertex(v3)
+    
+    edg = m.mtg.property('edge_type')
+    assert edg[v4]=='+',  'successor of removed vertex should have become branch'
+    assert edg[v5]=='+',  'branch child of removed vertex is not branch anymore'
+    assert up==set((v2,v4,v5)), 'unexpected update node list:'+str(up)
+    

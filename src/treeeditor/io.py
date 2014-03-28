@@ -54,5 +54,8 @@ def get_shared_data(*args):
     from openalea.deploy.shared_data import get_shared_data_path
     import treeeditor
     shared_data_path = get_shared_data_path(treeeditor)
+    if shared_data_path is None:
+        # did not work
+        return ''
     return _pjoin(shared_data_path, *args)
 

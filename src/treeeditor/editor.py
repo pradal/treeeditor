@@ -21,31 +21,8 @@ from treeeditor import tree       as _tree
 from treeeditor import background as _background
 
 
-toVec = lambda v : _qgl.Vec(v.x,v.y,v.z)
-toV3  = lambda v : _pgl.Vector3(v.x,v.y,v.z)
-
-# defaults TreeEditor theme:
-# --------------------------
-# define shape and material to be used for object display
-THEME_GREY = { 'BackGround': (20,20,20), 
-               'Points' : (180,180,180),
-               'ContractedPoints' : (255,0,0),
-               'CtrlPoints' : (30,250,30),
-               'NewCtrlPoints' : (30,250,250),
-               'SelectedCtrlPoints' : (30,250,30),
-               'EdgeInf' : (255,255,255),
-               'EdgePlus' : (255,255,0),
-               '3DModel' : (128,64,0)}
-                    
-THEME_WHITE = {'BackGround': (255,255,255), 
-               'Points' : (180,180,180),
-               'ContractedPoints' : (255,0,0),
-               'CtrlPoints' : (250,30,30),
-               'NewCtrlPoints' : (30,250,250),
-               'SelectedCtrlPoints' : (30,250,30),
-               'EdgeInf' : (0,0,0),
-               'EdgePlus' : (200,200,0),
-               '3DModel' : (128,64,0)}
+_toVec = lambda v : _qgl.Vec(*v)##v.x,v.y,v.z)
+##toV3  = lambda v : _pgl.Vector3(*v)##v.x,v.y,v.z)
 
 # TreeEditor class
 # ----------------
@@ -57,18 +34,21 @@ class TreeEditor(_QGLViewer):
     _mode_name = {Camera:'Camera', View:'View', Edition:'Edition'}
     
     
-    def __init__(self,parent=None, tree=None, background=None, *view_controlers):
-        """ create a TreeEditor for `tree`, `background`, and other optional ViewControler """   
+    def __init__(self, parent=None, tree=None, background=None, theme=None, *presenters):
+        """ create a TreeEditor for `tree`, `background`, and other optional Presenter """
         # super __init__
         if parent: _QGLViewer.__init__(self,parent=None)
         else:      _QGLViewer.__init__(self)
                                               
         # defaults
+        if theme is None:
+            from treeeditor import THEME
+            theme = THEME.copy()
+        self.theme = THEME
         self.mode  = self.Edition
-        self.theme = THEME_GREY#THEME_WHITE
         
-        # global translation of the scene  ## to remove or clarify (hack)?
-        self.translation = None
+        ## global translation of the scene  ## removed as not used anymore (?)
+        #self.translation = None
         
         # clipping plane
         self.clippingPlaneEnabled = False        
@@ -96,30 +76,32 @@ class TreeEditor(_QGLViewer):
         self.set_tree(tree)
         self.set_background(background)
         
-        self.vcs = []
-        for vc in view_controlers: self.add_viewcontroler(vc)
+        self.presenters = []
+        for p in presenters: self.add_presenter(p)
         
 
     # add/set content to display
     # --------------------------
     def set_tree(self, tree):
-        """ set the TreeVC object to be edited """
+        """ set the TreePresenter object to be edited """
         if tree is None:
-            tree = _tree.TreeVC()
+            tree = _tree.TreePresenter(theme=self.theme)
+        else:
+            tree.set_theme(self.theme)
         tree.register_editor(self)
         self.tree = tree
         
     def set_background(self, background):
         """ set the background view object """
         if background is None: 
-            background = _background.UniformBackgroundVC(self.theme['BackGround'])
+            background = _background.BackgroundPresenter(color=self.theme['background'])
         background.register_editor(self)
         self.background = background 
 
-    def add_viewcontroler(self,vc):
-        """ add optional ViewControler object """
-        vc.register_editor(self)
-        self.vcs.append(vc)
+    def add_presenter(self,presenter):
+        """ add optional Presenter object """
+        presenter.register_editor(self)
+        self.presenters.append(presenter)
                      
 
     # clipping plane of displayed content
@@ -147,21 +129,31 @@ class TreeEditor(_QGLViewer):
     # ------
     def init(self):
         """ initialize opengl environement """
-        ##self.setMouseBinding(QtCore.Qt.LeftButton,_QGLViewer.FRAME,_QGLViewer.TRANSLATE)
         self.set_mode(self.Camera)
-        ##self.setMouseBindingDescription(QtCore.Qt.ShiftModifier+QtCore.Qt.LeftButton,"Rectangular selection")
-        ##self.setMouseBindingDescription(QtCore.Qt.LeftButton,"Camera/Control Points manipulation")
+        self.setMouseBindingDescription(QtCore.Qt.Key_Space,"Switch between edition and camera interaction mode")
+        self.setMouseBindingDescription(QtCore.Qt.CTRL+QtCore.Qt.Key_Q,"Quit")
         ##self.setMouseBindingDescription(QtCore.Qt.LeftButton,"When double clicking on a line, create a new line",True)
         
         self.camera().setViewDirection(_qgl.Vec(0,-1,0))
         self.camera().setUpVector(_qgl.Vec(0,0,1))
         
-        self.background.__init_gl__()
+        self.background.__gl_init__()
         
-        self.register_key('Space',  self.switch_mode)
-        self.register_key('Ctrl+Q', self.close)
+        self.register_key('Space',  self.switch_mode, 'switch camera/edition mode')
+        self.register_key('Ctrl+Q', self.close, 'close editor')
+        self.register_key('Ctrl+R', self.update_scene_bbox, 'look at whole tree', ['tree'])
 
-
+    def set_2d_camera(self):
+        """ constraint camera to view at the 2D x-y plane """ 
+        cam = self.camera()
+        cam.setType(cam.ORTHOGRAPHIC)
+        cam.setUpVector(_toVec([0,-1,0]))
+        cam.setViewDirection(_toVec([0,0,1]))
+        
+        constraint = _qgl.WorldConstraint()
+        constraint.setRotationConstraintType(_qgl.AxisPlaneConstraint.FORBIDDEN)
+        cam.frame().setConstraint(constraint)
+        
     def set_mode(self,mode):
         """ set editor mode and related QGLViewer states """
         # Note: the below QGLViewer configurations indicates how QGLViewer 
@@ -173,10 +165,10 @@ class TreeEditor(_QGLViewer):
         # if camera mode: mouse event redirected to camera motion, and ctrl+mouse to nothing
         # otherwise, it's this opposite
         cam_mode = mode==self.Camera
-        self.setMouseBinding(Qt.LeftButton,  QGL.CAMERA, QGL.TRANSLATE if cam_mode else QGL.NO_MOUSE_ACTION)
-        self.setMouseBinding(Qt.RightButton, QGL.CAMERA, QGL.ROTATE    if cam_mode else QGL.NO_MOUSE_ACTION)
-        self.setMouseBinding(Qt.MidButton,   QGL.CAMERA, QGL.ZOOM      if cam_mode else QGL.NO_MOUSE_ACTION)
-        
+        self.setMouseBinding(Qt.LeftButton,          QGL.CAMERA, QGL.TRANSLATE if cam_mode else QGL.NO_MOUSE_ACTION)
+        self.setMouseBinding(Qt.RightButton,         QGL.CAMERA, QGL.ROTATE    if cam_mode else QGL.NO_MOUSE_ACTION)
+        self.setMouseBinding(Qt.MidButton,           QGL.CAMERA, QGL.ZOOM      if cam_mode else QGL.NO_MOUSE_ACTION)
+                                        
         self.setMouseBinding(Qt.LeftButton +Qt.ALT, QGL.CAMERA, QGL.NO_MOUSE_ACTION if cam_mode else QGL.TRANSLATE)
         self.setMouseBinding(Qt.RightButton+Qt.ALT, QGL.CAMERA, QGL.NO_MOUSE_ACTION if cam_mode else QGL.ROTATE)
         self.setMouseBinding(Qt.MidButton  +Qt.ALT, QGL.CAMERA, QGL.NO_MOUSE_ACTION if cam_mode else QGL.ZOOM)
@@ -201,51 +193,46 @@ class TreeEditor(_QGLViewer):
     def switch_mode(self, key_seq=None):
         """ Switch editor mode (View,Edition)<>Camera """
         self.set_mode(not self.mode)
-        
+        self.updateGL()
 
-    def update_scene_bbox(self, new_content, lookAt=True):
+    def update_scene_bbox(self, lookAt=None):
         """
-        Update scene boundingbox to contain `new_content`
+        Update scene boundingbox
         
-        :Inputs:
-          - `new_content`:
-                The added content, as a PlantGL Scene or Shape object
-          - `lookAt`:
-                If is True, move camera to focus on `new_content`
+        `lookAt` (optional) Either:
+            - a BoundingBox object to focus camera on
+            - 'all', to look at the whole scene
+            - 'tree', to look at the whole tree
                 
-        :Output:
-            The bounding box of `new_content` 
+        Return the update scene bounding box 
         """
-        # compute bounding box of `new_content`
-        bbc = _pgl.BBoxComputer(_pgl.Discretizer())
-        bbc.process(new_content)
+        bbox_all = map(lambda p: p.get_bounding_box(), [self.background,self.tree]+self.presenters)
+        bbox = filter(None, bbox_all)
         
-        # update scene bbox and camera center/radius
-        if not hasattr(self,'scene_bbox'):
-            self.scene_bbox = bbc.boundingbox
-        else:
-            self.scene_bbox += bbc.boundingbox
-        bbx = self.scene_bbox
+        if len(bbox)==0:
+            self.showMessage('Editor scene is empty')
+            return
+            
+        bbox = reduce(lambda x,y: x+y, bbox)
         cam = self.camera()
-        cam.setSceneRadius(_pgl.norm(bbx.lowerLeftCorner-bbx.upperRightCorner))
-        cam.setSceneCenter(toVec(bbx.lowerLeftCorner+bbx.upperRightCorner)/2)
+        cam.setSceneRadius(_pgl.norm(bbox.lowerLeftCorner-bbox.upperRightCorner))
+        cam.setSceneCenter(_toVec(bbox.lowerLeftCorner+bbox.upperRightCorner)/2)
         
         if lookAt:
-            bb = bbc.boundingbox
-            cam.fitBoundingBox(toVec(bb.lowerLeftCorner),toVec(bb.upperRightCorner))
+            if lookAt=='all':
+                lookAt = bbox
+            elif lookAt=='tree':
+                if bbox_all[1]:
+                    lookAt = bbox_all[1]
+                else:
+                    lookAt = bbox
+            cam.fitBoundingBox(_toVec(lookAt.lowerLeftCorner),_toVec(lookAt.upperRightCorner))
             
-        
-    ##def look_at(self,obj):#center,radius):
-    ##    """ """
-    ##    bbc = _pgl.BBoxComputer(_pgl.Discretizer())
-    ##    bbc.process(obj)
-    ##    bbx = bbc.boundingbox                               
-    ##    #self.setSceneCenter(toVec(center))
-    ##    #self.setSceneRadius(radius)
-        
+        self.updateGL()
                                                     
-    # rendering
-    # ---------
+        
+    # rendering and printing
+    # ----------------------
     def draw(self):
         """ paint in opengl """
         if self.clippingPlaneEnabled:
@@ -264,18 +251,22 @@ class TreeEditor(_QGLViewer):
                 _gl.glClipPlane(_gl.GL_CLIP_PLANE1,eq2)
                 _gl.glEnable(_gl.GL_CLIP_PLANE1)
             
-            _gl.glPopMatrix()           
+            _gl.glPopMatrix()
         else:
             _gl.glDisable(_gl.GL_CLIP_PLANE0)
             _gl.glDisable(_gl.GL_CLIP_PLANE1)
         
-        # draw ViewControlers
+        # draw Presenter objects
         self.background.draw(self.glrenderer)
-        self.tree.draw(self.glrenderer)
-        for vc in self.vcs:
-            vc.draw(self.glrenderer)
+        if self.mode==self.Camera:
+            self.tree.fastDraw(self.glrenderer)
+        else:
+            self.tree.draw(self.glrenderer)
+        for p in self.presenters:
+            p.draw(self.glrenderer)
+
         
-        ## to be done by PointsBackgroundVC
+        ## to be done by Points in BackgroundPresenter
         ##if self.pointDisplay and self.points:
         ##    #self.pointMaterial.apply(self.glrenderer)
         ##    #self.points.apply(self.glrenderer)
@@ -302,13 +293,19 @@ class TreeEditor(_QGLViewer):
         """ fast (re)paint in opengl """
         self.background.fastDraw(self.glrenderer)
         self.tree.fastDraw(self.glrenderer)
-        for vc in self.vcs:
-            vc.fastDraw(self.glrenderer)
+        for p in self.presenters:
+            p.fastDraw(self.glrenderer)
 
     
+    def showMessage(self,message,timeout = 0):
+        """ display a message """
+        self.displayMessage(message,timeout)
+        print message
+        self.updateGL()
+        
     # manage mouse and keyboard events
     # --------------------------------
-    def register_key(self, key_sequence, callback):
+    def register_key(self, key_sequence, callback, description=None, cb_args=[]):
         """ register the `callback` to be triggered by `key_sequence` 
         
         :Inputs:
@@ -321,12 +318,29 @@ class TreeEditor(_QGLViewer):
                   -  or the equivalent QKeySequence object
            
           - `callback` 
-                A funtion callable with arguments:
-                  - key:    the QtCore.Qt.Key_* value
-                  - mouse:  the position of the mouse in the image - as a QtCore.QPoint
-                  - camera: the active PyQGLViewer.Camera
+                A callable object (i.e. function) with no argument
         """
-        self.key_callback[QtGui.QKeySequence(key_sequence).toString()] = callback
+        self.key_callback[QtGui.QKeySequence(key_sequence).toString()] = [callback,cb_args]
+        
+    def bind_openfile_dialog(self,key_sequence,title,callback,warning=None):
+        """ set to open an "open file" dialog for given `key_sequence`
+        
+        The dialog will have title `title` and, once selected, given `callback`
+        is called with the filename as argument.
+        if `warning` is given, a warning dialog is opened before the the open 
+        file dialog with message given by `warning`.  
+        """
+        self.register_key(key_sequence,self.openfile_dialog, description=title, cb_args=[title,callback,warning])
+        
+    def bind_savefile_dialog(self,key_sequence,title,callback,warning=None):
+        """ set to open a "save file" dialog for given `key_sequence`
+        
+        The dialog will have title `title` and, once selected, given `callback`
+        is called with the filename as argument.
+        if `warning` is given, a warning dialog is opened before the the save 
+        file dialog with message given by `warning`.  
+        """
+        self.register_key(key_sequence,self.savefile_dialog, description=title, cb_args=[title,callback,warning])
         
     def _mouse_local_position(self,global_position=None):
         """ Return mouse position in the Viewer frame coordinates 
@@ -345,25 +359,31 @@ class TreeEditor(_QGLViewer):
         
     def keyPressEvent(self, event):
         """ distribute key event to registered callback """
-        key_seq = QtGui.QKeySequence(event.modifiers()|event.key()).toString()
+        modif_int = 0
+        modif = event.modifiers()
+        ## strange behaviors using directly modifiers with arrow keys... 
+        if modif&QtCore.Qt.CTRL:  modif_int += QtCore.Qt.CTRL
+        if modif&QtCore.Qt.ALT:   modif_int += QtCore.Qt.ALT
+        if modif&QtCore.Qt.SHIFT: modif_int += QtCore.Qt.SHIFT
+        if modif&QtCore.Qt.META:  modif_int += QtCore.Qt.META
+        key_seq = QtGui.QKeySequence(modif_int|event.key()).toString()
+        ##print key_seq, modif_int, event.key(), modif_int|event.key()
         
-        callback = self.key_callback.get(key_seq, None)
+        callback, args = self.key_callback.get(key_seq, (None,[]))
         if callback:                                           
-            callback(key_seq)#, self._mouse_local_position(), self.camera())
+            callback(*args)
         else:
             _QGLViewer.keyPressEvent(self, event)
 
     def _mouse_button_string(self,event):
         """ contruct "button" string (see mousePressEvent doc) """
-        # remove control from 
         modifiers = event.modifiers()
         
         # if camera mode, switch 'alt' modifiers
         if self.mode==self.Camera:
             modifiers ^= QtCore.Qt.ALT
-            
+        
         button = QtGui.QKeySequence(modifiers|QtCore.Qt.Key_A).toString()[:-1]
-        button.strip('+')
         if   event.button()==QtCore.Qt.LeftButton:  button += 'Left'
         elif event.button()==QtCore.Qt.RightButton: button += 'Right'
         else:                                       button += 'Middle'
@@ -371,9 +391,9 @@ class TreeEditor(_QGLViewer):
         
     def mousePressEvent(self,event):
         """ 
-        Call TreeVC mousePressEvent with arguments:
+        Call TreePresenter mousePressEvent with arguments:
           - button: a string representing all pressed button, such as:
-                    'Meta+Ctrl+Shift+j'  (always in this order)
+                    'Ctrl+Shift+Right'  (always in this order)
           - position: the mouse position
           - camera: this viewer camera
         """
@@ -400,24 +420,80 @@ class TreeEditor(_QGLViewer):
         if not processed:
             return _QGLViewer.mouseReleaseEvent(self,event)
         
+    def setRevolveAroundPoint(self, position):
+        """ 
+        Set camera to revolve around given `position`
+        if `position` is None, set the camera to revolve around scene center
+        """
+        if position:
+            self.camera().setRevolveAroundPoint(_toVec(position))
+        else:
+            self.camera().setRevolveAroundPoint(self.sceneCenter())
     ##def revolveAroundScene(self): ## connected ?
     ##    """ set camera RevolveAroundPoint to the scene center """
     ##    self.camera().setRevolveAroundPoint(self.sceneCenter())
     ##    self.showMessage("Revolve around scene center")
         
 
-    # display
-    # -------
-    def showMessage(self,message,timeout = 0):
-        """ display a message """
-        self.displayMessage(message,timeout)
-        print message
+    # dialog
+    # ------
+    def openfile_dialog(self, title, callback=None, warning=None):
+        """ open an "open file" dialog with given `title`
+        If `callback` is given, call it with user select filename as input
+        If `warning` is given, open first a warning dialog with given message.
+        """
+        import os
+        from treeeditor.io import get_shared_data
         
-
+        if warning:
+            msgBox = QtGui.QMessageBox()
+            msgBox.setText(warning)
+            msgBox.setStandardButtons(QtGui.QMessageBox.Cancel | QtGui.QMessageBox.Open)
+            msgBox.setDefaultButton(QtGui.QMessageBox.Open)
+            res = msgBox.exec_()
+            if res==QtGui.QMessageBox.Cancel:
+                return
+                
+        filename = QtGui.QFileDialog.getOpenFileName(self, title,
+                                                get_shared_data('data'),
+                                                "All Files (*.*)",
+                                                QtGui.QFileDialog.DontUseNativeDialog)
+        if not filename:
+            return
+        if callback:
+            callback(filename)
+        return filename
+        
+    def savefile_dialog(self, title, callback=None, warning=None):
+        """ open a "save file" dialog with given `title`
+        If `callback` is given, call it with user select filename as input
+        If `warning` is given, open first a warning dialog with given message.
+        """
+        import os
+        from treeeditor.io import get_shared_data
+        
+        if warning:
+            msgBox = QtGui.QMessageBox()
+            msgBox.setText(warning)
+            msgBox.setStandardButtons(QtGui.QMessageBox.Cancel | QtGui.QMessageBox.Save)
+            msgBox.setDefaultButton(QtGui.QMessageBox.Save)
+            res = msgBox.exec_()
+            if res==QtGui.QMessageBox.Cancel:
+                return
+                
+        filename = QtGui.QFileDialog.getSaveFileName(self, title,
+                                                get_shared_data('data'),
+                                                "All Files (*.*)",
+                                                QtGui.QFileDialog.DontUseNativeDialog)
+        if not filename:
+            return
+        if callback:
+            callback(filename)
+        return filename        
+        
+        
     
-## to move to TreeVC
-#        
-## to move to PointCloudVC
+## to move to PointCloudPresenter
 #        self.pointMaterial = _pgl.Material(self.theme['Points'],1)
 #        self.contractedpointMaterial = _pgl.Material(self.theme['ContractedPoints'],1)
 #        
@@ -446,14 +522,12 @@ class TreeEditor(_QGLViewer):
 #        self.nodesinfo = None
 #        self.nodesinfoRepIndex = {}
         
+        
+
 def main():
     """ simple test program """
     qapp = QtGui.QApplication([])
-    import numpy as np
-    w,h,d = 64,128,3
-    image = np.arange(w*h*3).reshape(w,h,3).astype('uint8')
-    imbg = _background.ImageBackgroundVC(image)
-    viewer = TreeEditor(background=imbg)
+    viewer = TreeEditor()#background=imbg)
     viewer.setWindowTitle("TreeEditor")
     viewer.show()
     qapp.exec_()

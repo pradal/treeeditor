@@ -16,7 +16,7 @@ else:
 
 import openalea.mtg.algo as _mtgalgo
 
-from .viewcontroler import AbstractViewControler as _AbstractViewControler        
+from .viewcontroler import ViewControler as _ViewControler        
 from . import io
 
 
@@ -58,7 +58,7 @@ def convert_to_std_mtg(g):
 
 
 
-class TreeVC(_AbstractViewControler):
+class TreeVC(_ViewControler):
     """
     Default ViewControler for mtg tree structure
     """
@@ -112,8 +112,8 @@ class TreeVC(_AbstractViewControler):
                                   'P':self.begin_reparent_selection,
                                   'E':self.split_edge,
                                   'Del':self.delete_selection,
+                                  'Backspace':self.delete_selection,
                                   'Shift+Del':self.delete_subtree,
-                                  'Backspace':self.undo,
                                   'Ctrl+Z':self.undo,
                                   
                                   'Esc': self.unselect,
@@ -133,7 +133,7 @@ class TreeVC(_AbstractViewControler):
     
     def register_editor(self, editor):
         """ Attach this view to the given `editor` """
-        _AbstractViewControler.register_editor(self,editor)
+        _ViewControler.register_editor(self,editor)
         
         # display parameters
         self.ctrlPointColor     = self._editor.theme['CtrlPoints']
@@ -537,7 +537,7 @@ class TreeVC(_AbstractViewControler):
         
         # update editor
         if update_scene:
-            self._editor.update_scene_bbox(self.mtgrep, lookAt=True)
+            self._editor.update_scene_bbox(lookAT=self.mtgrep)
        
     def create_mtg_representation(self):
         """ create mtgrep and mtgrepindex """
@@ -648,7 +648,7 @@ class TreeVC(_AbstractViewControler):
         """ pop last backed up mtg """         
         if len(self.backupmtg) > 0:
             self.mtg = self.backupmtg.pop()
-            self.showMessage("Undo to "+repr(self.mtg))
+            self._editor.showMessage("Undo to "+repr(self.mtg))
             self.mtgrep, self.mtgrepindex  = createMTGRepresentation(self.mtg,self.edgeInfMaterial,self.edgePlusMaterial)
             self.ctrlPoints = createCtrlPoints(self.mtg,self.ctrlPointColor,self.propertyposition,self.__update_repr__)
             self.createCtrlPointRepresentation()
@@ -656,7 +656,7 @@ class TreeVC(_AbstractViewControler):
             ##if len(self.backupmtg) > 0:
             ##    self._editor.emit(SIGNAL('undoAvailable(bool)'),False)   ## SIGNAL
         else:                                        
-            self.showMessage("No backup available.")
+            self._editor.showMessage("No backup available.")
             ##self.emit(SIGNAL('undoAvailable(bool)'),False)   ## SIGNAL
         
 
