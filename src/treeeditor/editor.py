@@ -71,10 +71,11 @@ class TreeEditor(_QGLViewer):
 
         # store functions to be called by key press event
         self.key_callback = {}
+        self.IO_callback = []
 
         # attach content to display
-        self.set_tree(tree)
         self.set_background(background)
+        self.set_tree(tree)
         
         self.presenters = []
         for p in presenters: self.add_presenter(p)
@@ -94,7 +95,9 @@ class TreeEditor(_QGLViewer):
     def set_background(self, background):
         """ set the background view object """
         if background is None: 
-            background = _background.BackgroundPresenter(color=self.theme['background'])
+            background = _background.BackgroundPresenter(theme=self.theme)
+        else:
+            background.set_theme(self.theme)
         background.register_editor(self)
         self.background = background 
 
@@ -139,9 +142,9 @@ class TreeEditor(_QGLViewer):
         
         self.background.__gl_init__()
         
-        self.register_key('Space',  self.switch_mode, 'switch camera/edition mode')
-        self.register_key('Ctrl+Q', self.close, 'close editor')
-        self.register_key('Ctrl+R', self.update_scene_bbox, 'look at whole tree', ['tree'])
+        self.register_key('Space',  'switch camera/edition mode', self.switch_mode)
+        self.register_key('Ctrl+Q', 'close editor', self.close)
+        self.register_key('Ctrl+R', 'look at whole tree', self.update_scene_bbox, ['tree'])
 
     def set_2d_camera(self):
         """ constraint camera to view at the 2D x-y plane """ 
@@ -305,7 +308,7 @@ class TreeEditor(_QGLViewer):
         
     # manage mouse and keyboard events
     # --------------------------------
-    def register_key(self, key_sequence, callback, description=None, cb_args=[]):
+    def register_key(self, key_sequence, description, callback, cb_args=[]):
         """ register the `callback` to be triggered by `key_sequence` 
         
         :Inputs:
@@ -320,7 +323,8 @@ class TreeEditor(_QGLViewer):
           - `callback` 
                 A callable object (i.e. function) with no argument
         """
-        self.key_callback[QtGui.QKeySequence(key_sequence).toString()] = [callback,cb_args]
+        self.key_callback[QtGui.QKeySequence(key_sequence).toString()] =\
+                                                [description, callback,cb_args]
         
     def bind_openfile_dialog(self,key_sequence,title,callback,warning=None):
         """ set to open an "open file" dialog for given `key_sequence`
@@ -330,7 +334,8 @@ class TreeEditor(_QGLViewer):
         if `warning` is given, a warning dialog is opened before the the open 
         file dialog with message given by `warning`.  
         """
-        self.register_key(key_sequence,self.openfile_dialog, description=title, cb_args=[title,callback,warning])
+        self.IO_callback.append((key_sequence, title, self.openfile_dialog, [title,callback,warning]))
+        self.register_key(key_sequence, title, self.openfile_dialog, cb_args=[title,callback,warning])
         
     def bind_savefile_dialog(self,key_sequence,title,callback,warning=None):
         """ set to open a "save file" dialog for given `key_sequence`
@@ -340,7 +345,8 @@ class TreeEditor(_QGLViewer):
         if `warning` is given, a warning dialog is opened before the the save 
         file dialog with message given by `warning`.  
         """
-        self.register_key(key_sequence,self.savefile_dialog, description=title, cb_args=[title,callback,warning])
+        self.IO_callback.append((key_sequence, title, self.openfile_dialog, [title,callback,warning]))
+        self.register_key(key_sequence, title, self.savefile_dialog, cb_args=[title,callback,warning])
         
     def _mouse_local_position(self,global_position=None):
         """ Return mouse position in the Viewer frame coordinates 
@@ -369,7 +375,7 @@ class TreeEditor(_QGLViewer):
         key_seq = QtGui.QKeySequence(modif_int|event.key()).toString()
         ##print key_seq, modif_int, event.key(), modif_int|event.key()
         
-        callback, args = self.key_callback.get(key_seq, (None,[]))
+        desc, callback, args = self.key_callback.get(key_seq, ('',None,[]))
         if callback:                                           
             callback(*args)
         else:
@@ -398,11 +404,20 @@ class TreeEditor(_QGLViewer):
           - camera: this viewer camera
         """
         button = self._mouse_button_string(event)
-        print 'mouse pressed:', button
-        if 'Alt' in button: # camera
-            processed = False
-        else:               # view or edition mode
+        edit_mode = 'Alt' not in button and\
+                    not self.background.is_empty() and\
+                    not self.tree.is_empty()
+
+        if not edit_mode and 'Right' in button:
+            context_items = self.tree.contextEvent(event.pos(),self.camera())
+            self.contextMenu(event.globalPos(), context_items)
+            processed = True
+            
+        elif edit_mode:
+            print 'mouse pressed:', button
             processed = self.tree.mousePressEvent(button,event.pos(),self.camera())
+        else:
+            processed = False
             
         if not processed:
             return _QGLViewer.mousePressEvent(self,event)
@@ -429,11 +444,31 @@ class TreeEditor(_QGLViewer):
             self.camera().setRevolveAroundPoint(_toVec(position))
         else:
             self.camera().setRevolveAroundPoint(self.sceneCenter())
-    ##def revolveAroundScene(self): ## connected ?
-    ##    """ set camera RevolveAroundPoint to the scene center """
-    ##    self.camera().setRevolveAroundPoint(self.sceneCenter())
-    ##    self.showMessage("Revolve around scene center")
+    def contextMenu(self,position, items):
+        """ create a context menu at `position` contening `items` 
         
+        `items` is a list of either:
+           - text(string):  display the text
+           - [text,callback]: display the text, and call `callback` when clicked
+           - None: to add a separator
+        """
+        menu = QtGui.QMenu(self)
+        for item in items:
+            if item is None:
+                menu.addSeparator()
+            elif isinstance(item, basestring):
+                menu.addAction(item)
+            else:
+                menu.addAction(*item)
+                
+        # add registered file I/O
+        if len(self.IO_callback):
+            from functools import partial
+            menu.addSeparator()
+            for key,desc,cb,args in self.IO_callback:
+                menu.addAction(desc+' ('+key+')', partial(cb, *args))
+                
+        menu.exec_(position)
 
     # dialog
     # ------
@@ -445,7 +480,9 @@ class TreeEditor(_QGLViewer):
         import os
         from treeeditor.io import get_shared_data
         
-        if warning:
+        if hasattr(warning,'__call__'):
+            warning = warning()
+        if warning:                
             msgBox = QtGui.QMessageBox()
             msgBox.setText(warning)
             msgBox.setStandardButtons(QtGui.QMessageBox.Cancel | QtGui.QMessageBox.Open)
@@ -472,6 +509,8 @@ class TreeEditor(_QGLViewer):
         import os
         from treeeditor.io import get_shared_data
         
+        if hasattr(warning,'__call__'):
+            warning = warning()
         if warning:
             msgBox = QtGui.QMessageBox()
             msgBox.setText(warning)

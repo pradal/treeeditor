@@ -30,7 +30,7 @@ class TreeModel(_Model):
         child (edge_type='<') but any number of branch children (edge_type='+')
     """
     
-    def __init__(self, presenter=None, mtg=None, position=None, radius=None):
+    def __init__(self, presenter=None, mtg=None, position='position', radius='radius'):
         """ create a TreeModel to interact with given `mtg` 
         
         `mtg`: 
@@ -67,7 +67,9 @@ class TreeModel(_Model):
         if mtg is None:
             # create a default mtg with one 'segment' vertex
             mtg = _MTG()
-            vid = mtg.add_component(mtg.root, position=(0,0,0), radius=1)
+            self._segment_scale = 1
+        else:
+            self._segment_scale = mtg.max_scale()
             
         self.mtg     = mtg
         self.mtgfile = filename
@@ -102,7 +104,7 @@ class TreeModel(_Model):
                 position = ['x','y','z']
             elif 'position' in prop:
                 position = 'position'
-            else:
+            elif position is None:
                 raise IOError("could not find position properties: either XX,YY,ZZ ; x,y,z ; position")
                     
         # autodetect position
@@ -146,12 +148,16 @@ class TreeModel(_Model):
         """ return radius of vertex `vertex` """
         return self.mtg.property(self.radius_property).setdefault(vertex,1)
         
+    def set_radius(self, vertex, radius):
+        """ return radius of vertex `vertex` """
+        self.mtg.property(self.radius_property)[vertex] = radius
+        
         
     # vertex ids accessors
     # --------------------
     def get_nodes(self):
         """ return the ids of the segments, i.e. the mtg vertices at max scale """
-        return self.mtg.vertices(scale=self.mtg.max_scale())
+        return self.mtg.vertices(scale=self._segment_scale)
         
     def parent(self,vid):
         """ return the id of the parent vertex of `vid` """
@@ -171,6 +177,14 @@ class TreeModel(_Model):
         
     # mtg edition
     # -----------
+    def new_vertex(self, position, radius=1):
+        """ add a new *unconnected* vertex """
+        ## new_vertex: expect segment_scale=1
+        vid =  self.mtg.add_component(self.mtg.root)
+        self.set_position(vid, position=position)
+        self.set_radius(vid, radius=radius)
+        return vid
+        
     def add_successor(self, vertex, position):
         """ add a successor (i.e. edge_type '<') to vertex `vertex` 
         
@@ -403,14 +417,8 @@ class PASModel(TreeModel):
     
     def set_mtg(self,mtg,filename=None, position=None, radius=None):
         """ set the `mtg` of this PASModel """
-        if mtg is None:
-            # create a default mtg with one plant, axe and segment vertices
-            mtg = _MTG()
-            pid = mtg.add_component(mtg.root)
-            aid = mtg.add_component(pid)
-            sid = mtg.add_component(aid, position=(0,0,0), radius=1)
-            
-        return TreeModel.set_mtg(self,mtg=mtg,filename=filename,position=position,radius=radius)
+        TreeModel.set_mtg(self,mtg=mtg,filename=filename,position=position,radius=radius)
+        self._max_scale = 3
         
     # mtg accessor
     # ------------
@@ -420,6 +428,16 @@ class PASModel(TreeModel):
     
     # mtg edition
     # -----------
+    def new_vertex(self, position, radius=1):
+        """ add a new *unconnected* vertex """
+        pid = self.mtg.add_component(self.mtg.root)
+        aid = self.mtg.add_component(pid)
+        sid = self.mtg.add_component(aid)
+        self.set_position(sid, position=position)
+        self.set_radius(sid, radius=radius)
+        
+        return sid
+        
     def add_branching(self, segment, position):
         """ add a branching vertex (i.e. edge_type '+') to `segment` 
 
@@ -547,6 +565,7 @@ class PASModel(TreeModel):
     ##todo: 1. remove empty axe/plants
     ##      2. insert_parent
     ##      3. remove_tree (seems to works - at lest check 1)
+    ##      4. move tests to a test module in test folder
     
     # appearance
     # ----------
@@ -559,72 +578,4 @@ class PASModel(TreeModel):
         """ 
         return self.get_axe(segment)
 
-# ----
-# test
-# ----
-def test_PASModel_add_branching():
-    m = PASModel()
-    s0 = m.get_nodes()[0]
-    s1 = m.add_branching(s0,(1,0,0))[0]
-    
-    g  = m.mtg
-    a0 = g.complex(s0)
-    a1 = g.complex(s1)
-    edg = g.property('edge_type')
-    
-    assert g.parent(s1)==s0, 'parent of new segment is not correct'
-    assert g.parent(a1)==a0, 'parent of new axe is not the axe of parent segment'    
-    assert edg[s1]=='+', 'new segment is not a branch'
-    assert edg[a1]=='+', 'new axe is not a branch'
-    assert g.complex(g.parent(s1))==g.parent(g.complex(s1)), 'branching &| parenting is not correct'
-    
 
-def test_TreeModel_remove_successor():
-    # test remove successor => child should keep edge_type
-    m = TreeModel()
-    v1 = m.get_nodes()[0]
-    v2 = m.add_successor(v1,(0,0,0))[0] 
-    v3 = m.add_successor(v2,(0,0,0))[0]
-    v4 = m.add_successor(v3,(0,0,0))[0]
-    v5 = m.add_branching(v3,(0,0,0))[0]
-    
-    up = m.remove_vertex(v3)
-    
-    edg = m.mtg.property('edge_type')
-    assert edg[v4]=='<',  'successor of removed vertex is not successor anymore'
-    assert edg[v5]=='+',  'branch child of removed vertex is not branch anymore'
-    assert up==set((v2,v4,v5)), 'unexpected update node list:'+str(up)
-    
-def test_TreeModel_remove_branch_no_successor_sibling():
-    # test remove branch & parent has not successor => children keep edge_type
-    m = TreeModel()
-    v1 = m.get_nodes()[0]
-    v2 = m.add_successor(v1,(0,0,0))[0]
-    v3 = m.add_branching(v2,(0,0,0))[0]
-    v4 = m.add_successor(v3,(0,0,0))[0]
-    v5 = m.add_branching(v3,(0,0,0))[0]
-    
-    up = m.remove_vertex(v3)
-    
-    edg = m.mtg.property('edge_type')
-    assert edg[v4]=='<',  'successor of removed vertex is not successor anymore'
-    assert edg[v5]=='+',  'branch child of removed vertex is not branch anymore'
-    assert up==set((v2,v4,v5)), 'unexpected update node list:'+str(up)
-    
-def test_TreeModel_remove_branch_with_successor_sibling():
-    # test remove branch & parent has successor => children should all be '+'
-    m = TreeModel()
-    v1 = m.get_nodes()[0]
-    v2 = m.add_successor(v1,(0,0,0))[0]
-    v2s= m.add_successor(v2,(0,0,0))[0]
-    v3 = m.add_branching(v2,(0,0,0))[0]
-    v4 = m.add_successor(v3,(0,0,0))[0]
-    v5 = m.add_branching(v3,(0,0,0))[0]
-    
-    up = m.remove_vertex(v3)
-    
-    edg = m.mtg.property('edge_type')
-    assert edg[v4]=='+',  'successor of removed vertex should have become branch'
-    assert edg[v5]=='+',  'branch child of removed vertex is not branch anymore'
-    assert up==set((v2,v4,v5)), 'unexpected update node list:'+str(up)
-    

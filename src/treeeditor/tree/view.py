@@ -24,15 +24,6 @@ class AbstractView(_View):
         """
         _View.__init__(self)
         self.clear()
-        
-        # display parameters
-        from treeeditor import THEME
-        if theme is None:
-            self.theme = THEME.copy()
-        else:
-            for k,v in THEME.iteritems():
-                theme.setdefault(k,v)
-            self.theme = theme
                 
     def clear(self):
         self.content = None      # main content as a dict (tree-id, plantgl objects) 

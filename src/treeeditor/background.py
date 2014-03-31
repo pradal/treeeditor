@@ -17,13 +17,11 @@ class BackgroundPresenter(_Presenter):
     By default, it simply manage background color. Then it can contain an
     ImageView and a PointsView
     """
-    def __init__(self, color=None):
+    def __init__(self, theme=None):
         """ Uniform background with color `color` """
-        _Presenter.__init__(self)
+        _Presenter.__init__(self, theme=theme)
         
-        if color is None:
-            from treeeditor import THEME
-            color = THEME['background']
+        color = self.theme['background']
         if isinstance(color, _pgl.Material):
             color = color.ambient
             color = (color.red,color.green,color.blue)
@@ -32,9 +30,12 @@ class BackgroundPresenter(_Presenter):
         self.image  = None
         self.points = None
         
-    def get_view_list(self):
-        return filter(None,[self.image,self.points]+self.view_list)
-        
+    def register_editor(self, editor):
+        """ Attach this view to the given `editor` """
+        _Presenter.register_editor(self,editor)
+        self._editor.bind_openfile_dialog('Ctrl+I','Load image background',self.set_image)
+        self._editor.bind_openfile_dialog('Ctrl+P','Load pointset background',self.set_points)
+
     def set_image(self, image):
         """ set this BackgroundPresenter image View
         
@@ -48,12 +49,8 @@ class BackgroundPresenter(_Presenter):
                 print 'could not load image: ' + e.message
                 return
                 
-        self.image = image
+        self.attach_view('image',image)
         
-        if len(self.view_list)==0:
-            self.view_list.append(self.image)
-            
-        self.image.set_presenter(self)
         self._editor.set_2d_camera()
         self._editor.update_scene_bbox(lookAt=self.image.boundingbox)
         
@@ -62,19 +59,21 @@ class BackgroundPresenter(_Presenter):
         self._editor.camera().fitSphere(_qgl.Vec(w/2,h/2,0),h/2)
         self._editor.updateGL()
 
-    def register_editor(self, editor):
-        """ Attach this view to the given `editor` """
-        _Presenter.register_editor(self,editor)
-        self._editor.bind_openfile_dialog('Ctrl+I','Load image background',self.set_image)
-
     def set_points(self, points):
-        """ set this BackgroundPresenter points (cloud) View
+        """ set this BackgroundPresenter points View
         
-        points can be any of the valid input of PointsView constructor
-        
-        *** not implemented ***
+        points can be any of the valid input of PointSetView constructor
         """
-        raise NotImplementedError("background points is not implemented") 
+        if not isinstance(points, _View):
+            try:
+                points = PointSetView(points, theme=self.theme)
+            except IOError as e:
+                print 'could not load pointset: ' + e.message
+                return
+                
+        self.attach_view('points',points)
+        self._editor.update_scene_bbox(lookAt=self.points.boundingbox)
+        
         
     def draw(self, glrenderer):
         """ Draw background """
@@ -174,4 +173,61 @@ class ImageView(_View):
         glEnd()
         
         
+# View class to display a point cloud
+# -----------------------------------
+class PointSetView(_View):
+    def __init__(self, point_scene, theme=None):
+        """ Create a PointSetView from the plangl Scene `point_scene` """
+        _View.__init__(self,theme=theme)
+        if isinstance(point_scene,basestring):
+            self.read_points(point_scene)
+        else:
+            self.set_points(point_scene)
         
+    def read_points(self,filename):
+        """ load point set from `filename` """
+        scene = _pgl.Scene(str(filename))
+        self.set_points(scene)
+        
+    def set_points(self,point_scene):
+        """ set this PointSetView content """
+        # remove translation
+        try:
+            points = point_scene[0].geometry.geometry
+            translation =  point_scene[0].geometry.translation
+            points.pointList.translate(translation)
+        except AttributeError:
+            points = point_scene[0].geometry
+            
+        self.points = points
+        self.update_boundingbox()
+        
+        # compute point color                
+        if self.points.colorList is None: 
+            bbx = self.boundingbox
+            colorList = [(100+int(100*((i.x-bbx.getXMin())/bbx.getXRange())),
+                          100+int(100*((i.y-bbx.getYMin())/bbx.getYRange())),
+                          100+int(100*((i.z-bbx.getZMin())/bbx.getZRange())),0) for i in self.points.pointList]
+            self.points.colorList = colorList
+            
+        ## self.filter_points()  w.r.t mtg...
+        
+        self.pointWidth = int(self.theme['point_diameter']*.7)
+        self.create()
+        
+    def create(self):
+        """ create the plantgl scene """
+        pointList  = self.points.pointList
+        colorList  = self.points.colorList
+        material = self.theme['pointset_color']
+        pointset   = _pgl.PointSet(pointList,colorList,width=self.pointWidth)
+        self.scene = _pgl.Scene([_pgl.Shape(pointset, material)])
+
+    def update_boundingbox(self):
+        """ (re)compute the view boundingbox """
+        if hasattr(self,'points') and hasattr(self.points,'pointList'):
+            self.boundingbox = _pgl.BoundingBox(*self.points.pointList.getBounds())
+        else:
+            self.boundingbox = None
+        return self.boundingbox
+

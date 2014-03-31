@@ -40,9 +40,9 @@ class TreePresenter(_Presenter):
         self.set_theme(theme)
         
         # model and views
-        self.ctrl_points = _ControlPointsView(theme=self.theme)
-        self.edges       = _EdgesView(theme=self.theme)
-        _Presenter.__init__(self,[self.ctrl_points,self.edges])
+        ctrl_points = _ControlPointsView(theme=self.theme)
+        edges       = _EdgesView(theme=self.theme)
+        _Presenter.__init__(self,ctrl_points=ctrl_points,edges=edges)
         self.set_model(tree)
 
         # edition attributes
@@ -54,27 +54,24 @@ class TreePresenter(_Presenter):
         # registered event
         # ----------------
         # keybord edit event
-        self.key_edit_callback = {'N':self.add_child,
-                                  'M':self.set_axial_point,
-                                  'P':self.begin_reparent_selection,
-                                  'E':self.split_edge,
-                                  'D': self.draw_axe,
-                                  'Del':self.delete_selection,
-                                  'Backspace':self.delete_selection,
-                                  'Shift+Del':self.delete_subtree,
-                                  'Shift+Backspace':self.delete_subtree,
-                                  'Ctrl+Z':self.undo,
-                                  
-                                  'Up':   self.select_parent,
-                                  'Down': self.select_successor,
-                                  'Esc':  self.unselect,
-                                  
-                                  'Ctrl+O':self.load_mtg_dialog,
-                                  'Ctrl+S':self.save_mtg_dialog, 
-        
-                                  '-':self.ctrl_points.dec_point_size,
-                                  '+':self.ctrl_points.inc_point_size,
-                                  '=':self.ctrl_points.inc_point_size}
+        self.key_edit_callback = [
+            [self.add_child,       'add child node (N)',               ['N']],
+            [self.set_axial_point, 'set axial node (M)',               ['M']],
+            [self.reparent_mode,   'select new parent (P)',            ['P']],
+            [self.split_edge,      'add node en edge (E)',             ['E']],
+            [self.draw_axe,        'Draw axe (D)',                     ['D']],
+            None,
+            [self.delete_selection,'Delete node (del/backspace)',      ['Del','Backspace']],
+            [self.delete_subtree,  'delete subtree (shift+del/bspace)',['Shift+Del','Shift+Backspace']],
+            None,
+            [self.undo,            'undo (ctrl+z)',                    ['Ctrl+Z']],
+            None,
+            [self.select_parent,   'select parent (up)',               ['Up']],
+            [self.select_successor,'select successor (down)',          ['Down']],
+            [self.unselect,        'unselect (esc)',                   ['Esc']],
+            None,
+            [self.ctrl_points.dec_point_size,'dec point size (-)',   ['-']],
+            [self.ctrl_points.inc_point_size,'inc point size (+/=)', ['+','=']]]
                                  
     
     def register_editor(self, editor):
@@ -85,10 +82,14 @@ class TreePresenter(_Presenter):
     def register_key_event(self):
         """ register key event """
         if hasattr(self,'_editor'):
-            for key,fct in self.key_edit_callback.iteritems():
-                self._editor.register_key(key, fct)
+            for item in self.key_edit_callback:
+                if item is None: continue
+                fct, desc, keys = item
+                for key in keys:
+                    self._editor.register_key(key, desc, fct)
         
-            self._editor.bind_openfile_dialog('Ctrl+O','Open mtg file (.mtg or .bmtg)',self.set_model, warning='Current tree will be lost. Continue?')
+            self._editor.bind_openfile_dialog('Ctrl+O','Open mtg file (.mtg or .bmtg)',self.set_model,
+                           warning=lambda : False if self.is_empty() else 'Current tree will be lost. Continue?')
             self._editor.bind_savefile_dialog('Ctrl+S','Save mtg file (.mtg or .bmtg)',self.save_model)
                     
     def set_model(self, tree):
@@ -116,10 +117,9 @@ class TreePresenter(_Presenter):
     def save_model(self, filename):
         self.model.save_mtg(filename)
 
-    def set_theme(self, theme):
-        """ set given `theme` for the Presenter """
-        self.theme = theme
-    
+    def is_empty(self):
+        """ return True if tree model is emtpy """
+        return len(self.model.get_nodes())==0
     # updating views
     # --------------
     def update_views(self,node_id):
@@ -198,7 +198,7 @@ class TreePresenter(_Presenter):
         self._added_view_node = set()
         self._deleted_view_node = set()
         
-    # manage user interaction
+    # manage event
     # -----------------------
     def mousePressEvent(self, button, position, camera):
         """ Process mouse press event
@@ -261,6 +261,28 @@ class TreePresenter(_Presenter):
             self.set_edition_mode(False)
         return False
     
+    
+    def contextEvent(self, position, camera):
+        """ return list of items for context menu """
+        self.apply_view_update()
+        
+        menu = []
+        if self.edit_mode!=self.FREE:
+            menu.append("you are currently in edition mode (code: %d)." % self.edit_mode)
+        elif self.selection is None:
+            menu.append('No node selected')
+        else:
+            for item in self.key_edit_callback:
+                if item is None: 
+                    menu.append(None)
+                else:
+                    fct, desc, keys = item
+                    menu.append((desc, fct))
+            #ctrl_point = self.get_ctrl_point_at(position, camera)
+        
+        return menu
+    # manage edition mode and selection
+    # ---------------------------------
     def set_edition_mode(self, edit=True):
         """ set mode edition if `edit`, or stop it otherwise """
         if edit:
@@ -521,7 +543,7 @@ class TreePresenter(_Presenter):
         # update self
         self.set_selection(model_id=new_child_id)
         
-    def begin_reparent_selection(self):
+    def reparent_mode(self):
         """ set reparent edition mode: i.e. wait of new parent selection
         
         If mode is already on reparent, switch to none """
