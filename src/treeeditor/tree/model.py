@@ -564,8 +564,7 @@ class PASModel(TreeModel):
 
     ##todo: 1. remove empty axe/plants
     ##      2. insert_parent
-    ##      3. remove_tree (seems to works - at lest check 1)
-    ##      4. move tests to a test module in test folder
+    ##      3. remove_tree (seems to works - at least check 1)
     
     # appearance
     # ----------
