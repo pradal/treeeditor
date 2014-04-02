@@ -191,6 +191,7 @@ class ControlPointsView(AbstractView):
         diameter = self.theme['point_diameter']
         scale = self.scene[0].geometry.geometry.scale
         scale[0] = scale[1] = scale[2] = diameter
+        self.updateGL()
             
     def dec_point_size(self):
         """ scale down control point sphere by 20% """
@@ -198,6 +199,7 @@ class ControlPointsView(AbstractView):
         diameter = self.theme['point_diameter']
         scale = self.scene[0].geometry.geometry.scale
         scale[0] = scale[1] = scale[2] = diameter
+        self.updateGL()
         
 class EdgesView(AbstractView):
     """

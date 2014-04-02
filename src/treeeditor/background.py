@@ -17,9 +17,9 @@ class BackgroundPresenter(_Presenter):
     By default, it simply manage background color. Then it can contain an
     ImageView and a PointsView
     """
-    def __init__(self, theme=None):
+    def __init__(self, theme=None, editor=None):
         """ Uniform background with color `color` """
-        _Presenter.__init__(self, theme=theme)
+        _Presenter.__init__(self, theme=theme, editor=editor)
         
         color = self.theme['background']
         if isinstance(color, _pgl.Material):
@@ -30,11 +30,10 @@ class BackgroundPresenter(_Presenter):
         self.image  = None
         self.points = None
         
-    def register_editor(self, editor):
-        """ Attach this view to the given `editor` """
-        _Presenter.register_editor(self,editor)
-        self._editor.bind_openfile_dialog('Ctrl+I','Load image background',self.set_image)
-        self._editor.bind_openfile_dialog('Ctrl+P','Load pointset background',self.set_points)
+        self.add_file_action('Load image background',self.set_image, 
+                             dialog='open', keys=['Ctrl+I'])
+        self.add_file_action('Load pointset background',self.set_points, 
+                             dialog='open', keys=['Ctrl+P'])
 
     def set_image(self, image):
         """ set this BackgroundPresenter image View
@@ -46,18 +45,18 @@ class BackgroundPresenter(_Presenter):
                 image = ImageView(image)
                 image.__gl_init__()
             except IOError as e:
-                print 'could not load image: ' + e.message
+                self.show_message('could not load image: ' + e.message)
                 return
                 
         self.attach_view('image',image)
         
-        self._editor.set_2d_camera()
-        self._editor.update_scene_bbox(lookAt=self.image.boundingbox)
+        self._presenter.set_2d_camera()
+        self.update_content()
         
-        # for the image to exactly fit the screen height
+        ## for the image to exactly fit the screen height
         w,h = self.image.img_width, self.image.img_height
-        self._editor.camera().fitSphere(_qgl.Vec(w/2,h/2,0),h/2)
-        self._editor.updateGL()
+        self._presenter.camera().fitSphere(_qgl.Vec(w/2,h/2,0),h/2)
+        self.updateGL()
 
     def set_points(self, points):
         """ set this BackgroundPresenter points View
@@ -68,16 +67,16 @@ class BackgroundPresenter(_Presenter):
             try:
                 points = PointSetView(points, theme=self.theme)
             except IOError as e:
-                print 'could not load pointset: ' + e.message
+                self.show_message('could not load pointset: ' + e.message)
                 return
                 
         self.attach_view('points',points)
-        self._editor.update_scene_bbox(lookAt=self.points.boundingbox)
+        self._presenter.update_scene_bbox(lookAt=self.points.get_boundingbox())
         
         
     def draw(self, glrenderer):
         """ Draw background """
-        self._editor.setBackgroundColor(self.bg_color)  ## can we use glrenderer?
+        self._presenter.setBackgroundColor(self.bg_color)  ## can we use glrenderer?
         _Presenter.draw(self,glrenderer)
         
         
@@ -129,6 +128,8 @@ class ImageView(_View):
         
     def draw(self, glrenderer):
         """ Draw background """
+        if not self.display: return
+        
         from OpenGL.GL import glEnable, glDisable, glBindTexture, glClear
         from OpenGL.GL import glColor3f, glNormal3f, glTexCoord2f, glVertex2i
         from OpenGL.GL import glBegin, glEnd
@@ -138,8 +139,6 @@ class ImageView(_View):
         glBindTexture(GL_TEXTURE_2D, self.tex_image)
         glEnable(GL_TEXTURE_2D);
         glColor3f(1,1,1);
-      
-        #self._editor.startScreenCoordinatesSystem(True);
       
         # Draws the background quad
         w = self.img_width
@@ -152,8 +151,6 @@ class ImageView(_View):
         glTexCoord2f(1.0, 1.0);   glVertex2i(w,h);
         glTexCoord2f(1.0, 0.0);   glVertex2i(w,0);
         glEnd();
-      
-        #self._editor.stopScreenCoordinatesSystem();
       
         # Depth clear is not absolutely needed. An other option would have been to draw the
         # QUAD with a 0.999 z value (z ranges in [0, 1[ with startScreenCoordinatesSystem()).
@@ -204,7 +201,7 @@ class PointSetView(_View):
         
         # compute point color                
         if self.points.colorList is None: 
-            bbx = self.boundingbox
+            bbx = self.get_boundingbox()
             colorList = [(100+int(100*((i.x-bbx.getXMin())/bbx.getXRange())),
                           100+int(100*((i.y-bbx.getYMin())/bbx.getYRange())),
                           100+int(100*((i.z-bbx.getZMin())/bbx.getZRange())),0) for i in self.points.pointList]

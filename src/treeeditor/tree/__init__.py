@@ -20,9 +20,9 @@ class TreePresenter(_Presenter):
     """
     Default Presenter class managing (mtg) tree structure
     """
-    FREE,EDITION,REPARENT,DRAW_AXE = range(4)
+    FREE,EDITION,REPARENT,SKETCH_AXE = range(4)
     
-    def __init__(self, tree=None, theme=None):
+    def __init__(self, tree=None, theme=None, editor=None):
         """ Create the TreePresenter object
         
            `tree` is either
@@ -36,13 +36,13 @@ class TreePresenter(_Presenter):
         See also: `treeeeditor.tree.model.TreeModel documentation`
         """
         # link to the calling TreeEditor (QGLViewer) object
-        self._editor = None
-        self.set_theme(theme)
+        _Presenter.__init__(self,theme=theme, editor=editor)
         
         # model and views
         ctrl_points = _ControlPointsView(theme=self.theme)
         edges       = _EdgesView(theme=self.theme)
-        _Presenter.__init__(self,ctrl_points=ctrl_points,edges=edges)
+        self.attach_view('ctrl_points',ctrl_points)
+        self.attach_view('edges',edges)
         self.set_model(tree)
 
         # edition attributes
@@ -50,48 +50,29 @@ class TreePresenter(_Presenter):
         self.focus = None      # id of the focussed control point (if any) 
         self.selection = None  # id of the selected control point (if any)
 
+        # register actions
+        self.add_file_action('Open mtg file (.mtg or .bmtg)',self.set_model, dialog='open', keys= ['Ctrl+O'],
+                             warning=lambda : False if self.is_empty() else 'Current tree will be lost. Continue?')
+        self.add_file_action('Save mtg file (.mtg or .bmtg)',self.save_model, dialog='save', keys= ['Ctrl+S'])
 
-        # registered event
-        # ----------------
-        # keybord edit event
-        self.key_edit_callback = [
-            [self.add_child,       'add child node (N)',               ['N']],
-            [self.set_axial_point, 'set axial node (M)',               ['M']],
-            [self.reparent_mode,   'select new parent (P)',            ['P']],
-            [self.split_edge,      'add node en edge (E)',             ['E']],
-            [self.draw_axe,        'Draw axe (D)',                     ['D']],
-            None,
-            [self.delete_selection,'Delete node (del/backspace)',      ['Del','Backspace']],
-            [self.delete_subtree,  'delete subtree (shift+del/bspace)',['Shift+Del','Shift+Backspace']],
-            None,
-            [self.undo,            'undo (ctrl+z)',                    ['Ctrl+Z']],
-            None,
-            [self.select_parent,   'select parent (up)',               ['Up']],
-            [self.select_successor,'select successor (down)',          ['Down']],
-            [self.unselect,        'unselect (esc)',                   ['Esc']],
-            None,
-            [self.ctrl_points.dec_point_size,'dec point size (-)',   ['-']],
-            [self.ctrl_points.inc_point_size,'inc point size (+/=)', ['+','=']]]
-                                 
-    
-    def register_editor(self, editor):
-        """ Attach this view to the given `editor` """
-        _Presenter.register_editor(self,editor)
-        self.register_key_event()
+        self.add_edit_action('undo',            self.undo,         keys=['Ctrl+Z'], isenable=self.has_undo)
         
-    def register_key_event(self):
-        """ register key event """
-        if hasattr(self,'_editor'):
-            for item in self.key_edit_callback:
-                if item is None: continue
-                fct, desc, keys = item
-                for key in keys:
-                    self._editor.register_key(key, desc, fct)
+        self.add_edit_action('add child',       self.add_child,    keys=['A'],      isenable=self.get_selection)
+        self.add_edit_action('set successor',   self.set_axial,    keys=['<'],      isenable=self.get_selection)
+        self.add_edit_action('reparent',        self.reparent_mode,keys=['P'],      isenable=self.get_selection)
+        self.add_edit_action('new node on edge',self.split_edge,   keys=['E'],      isenable=self.get_selection)
+        self.add_edit_action('sketch axe',      self.sketch_axe,   keys=['S'],      isenable=self.get_selection)
         
-            self._editor.bind_openfile_dialog('Ctrl+O','Open mtg file (.mtg or .bmtg)',self.set_model,
-                           warning=lambda : False if self.is_empty() else 'Current tree will be lost. Continue?')
-            self._editor.bind_savefile_dialog('Ctrl+S','Save mtg file (.mtg or .bmtg)',self.save_model)
-                    
+        self.add_edit_action('delete node',     self.delete_selection, keys=['Del','Backspace'], isenable=self.get_selection)
+        self.add_edit_action('delete subtree',  self.delete_subtree,   keys=['Shift+Del','Shift+Backspace'], isenable=self.get_selection)
+                                                                      
+        self.add_edit_action('select parent',    self.select_parent,    keys=['Up'],   isenable=self.get_selection)
+        self.add_edit_action('select successor', self.select_successor, keys=['Down'], isenable=self.get_selection)
+        self.add_edit_action('unselect',         self.unselect,         keys=['Esc'],  isenable=self.get_selection)
+        
+        self.add_edit_action('dec point size', self.ctrl_points.dec_point_size, keys=['-'])
+        self.add_edit_action('inc point size', self.ctrl_points.inc_point_size, keys=['+','='])
+
     def set_model(self, tree):
         """ set the tree model managed by this TreePresenter 
         
@@ -156,10 +137,11 @@ class TreePresenter(_Presenter):
         self._added_view_node = set()
         self._deleted_view_node = set()
         
-        if self._editor:
+        if self._presenter:
             if update_camera:
-                update_camera = self.edges.boundingbox
-            self._editor.update_scene_bbox(lookAt=update_camera)
+                update_camera = self.edges.get_boundingbox()
+            self.update_content(lookAt=update_camera)
+
 
     def delete_view_node(self, node_id):
         """ delete view content related to node_id """
@@ -200,7 +182,7 @@ class TreePresenter(_Presenter):
         
     # manage event
     # -----------------------
-    def mousePressEvent(self, button, position, camera):
+    def mousePressEvent(self, keys, position, camera):
         """ Process mouse press event
             
             Check for eventual operations the user asks: 
@@ -210,77 +192,51 @@ class TreePresenter(_Presenter):
         processed = False
         self.apply_view_update()
         
-        if button=='Left':
-            # axe drawing: each click create a child on the z=0 plane
-            if self.edit_mode == self.DRAW_AXE:
-                # compute position of ray projected on z=0 plane 
-                self.draw_segment(position, camera)
-                return True
-                
-            # find ctrl_point clicked by mouse
-            ctrl_point = self.get_ctrl_point_at(position, camera)
+        # axe drawing: each click create a child on the z=0 plane
+        if self.edit_mode == self.SKETCH_AXE:
+            # compute position of ray projected on z=0 plane 
+            self.sketch_segment(position, camera)
+            return True
             
-            # (end of) reparent - parent of selected node is set the clicked one
-            if self.edit_mode == self.REPARENT:
-                processed = self.reparent_selection(ctrl_point)
+        # find ctrl_point clicked by mouse
+        ctrl_point = self.get_ctrl_point_at(position, camera)
+        
+        # (end of) reparent - parent of selected node is set the clicked one
+        if self.edit_mode == self.REPARENT:
+            processed = self.reparent_selection(ctrl_point)
 
-            # no control point
-            elif ctrl_point is None:
-                self.set_selection(None)
-                self.edit_mode = self.FREE
-                
-            # edition of node position
-            elif self.edit_mode == self.FREE:
-                self.set_selection(ctrl_point)
-                self.set_edition_mode(True)
-                processed = False ## for QGLViewer to still be called
+        # no control point
+        elif ctrl_point is None:
+            self.set_selection(None)
+            self.edit_mode = self.FREE
             
-        # context menu
-        elif button=='Right':
-            ctrl_point = self.get_ctrl_point_at(position, camera)
-            if ctrl_point:
-                self.set_selection(ctrl_point)
-                ##self.contextMenu(event.globalPos())  ## make context menu
-                ##self._editor.updateGL()
-                processed = True
-                
+        # edition of node position
+        elif self.edit_mode == self.FREE:
+            self.set_selection(ctrl_point)
+            self.set_edition_mode(True)
+            processed = False ## for QGLViewer to still be called
+            
         return processed
         
-    def mouseDoubleClickEvent(self, button, position, camera):
-        """ simply select node """
-        self.apply_view_update()
-        ctrl_point = self.get_ctrl_point_at(position,camera)
-        self.set_selection(ctrl_point)
-        self.set_edition_mode(False)
-        return bool(self.selection)
-
-    def mouseReleaseEvent(self, button, position, camera):
+    def mouseReleaseEvent(self, buttons, position, camera):
         """ stop edition (of node position) mode """
         # clear manipulated object
-        if self.edit_mode!=self.DRAW_AXE:
+        if self.edit_mode!=self.SKETCH_AXE:
             self.set_edition_mode(False)
         return False
     
     
-    def contextEvent(self, position, camera):
+    def contextMenuEvent(self, buttons, position, camera):
         """ return list of items for context menu """
         self.apply_view_update()
         
-        menu = []
-        if self.edit_mode!=self.FREE:
-            menu.append("you are currently in edition mode (code: %d)." % self.edit_mode)
-        elif self.selection is None:
-            menu.append('No node selected')
-        else:
-            for item in self.key_edit_callback:
-                if item is None: 
-                    menu.append(None)
-                else:
-                    fct, desc, keys = item
-                    menu.append((desc, fct))
-            #ctrl_point = self.get_ctrl_point_at(position, camera)
+        if self.edit_mode==self.FREE:
+            ctrl_point = self.get_ctrl_point_at(position, camera)
+            if ctrl_point:
+                self.set_selection(ctrl_point)
+                return self.get_edit_actions()
         
-        return menu
+        return None
     # manage edition mode and selection
     # ---------------------------------
     def set_edition_mode(self, edit=True):
@@ -289,11 +245,11 @@ class TreePresenter(_Presenter):
             self.edit_mode = self.EDITION
             self.push_backup()
             self.ctrl_points.set_focus(self.selection)
-            self._editor.setManipulatedFrame(self.selection)
+            self._presenter.setManipulatedFrame(self.selection)
         else:
             self.edit_mode = self.FREE
             self.ctrl_points.set_focus(None)
-            self._editor.setManipulatedFrame(None)
+            self._presenter.setManipulatedFrame(None)
         
     def set_selection(self,point=None, model_id=None):
         """ Set focus to the given control point """
@@ -311,12 +267,12 @@ class TreePresenter(_Presenter):
         if self.selection:
             self.selection.selected = True
             self.ctrl_points.update(self.selection.id)
-            self._editor.setRevolveAroundPoint(self.selection.position())
+            self._presenter.setRevolveAroundPoint(self.selection.position())
             self.show_message('Node %d selected' % self.selection.id)
             self.ctrl_points.set_focus(None)
-            self._editor.setRevolveAroundPoint(None)
+            self._presenter.setRevolveAroundPoint(None)
 
-        self._editor.updateGL()
+        self.updateGL()
         
     def unselect(self):
         """ set selection to None"""
@@ -385,7 +341,7 @@ class TreePresenter(_Presenter):
         elif nbchild >= 1:
             import math
             # select best (candidate) position with respect to some distance criteria
-            view_dir = _toV3(self._editor.camera().viewDirection())
+            view_dir = _toV3(self._presenter.camera().viewDirection())
             
             # select candidate position for child
             nbcandidates = 10
@@ -441,7 +397,7 @@ class TreePresenter(_Presenter):
             self.set_selection(self.ctrl_points.get_point(parent_id))
         self.show_message("vertex "+str(node_id)+" removed.")
                 
-    def set_axial_point(self):
+    def set_axial(self):
         """ set selected vertex to be the axial successor of its parent """
         if not self.get_selection(): return
         self.push_backup()
@@ -488,19 +444,22 @@ class TreePresenter(_Presenter):
         self.show_message("subtree rooted in "+str(node_id)+"Removed.")
                                         
 
-    def draw_axe(self):
+    def sketch_axe(self):
         """ set reparent edition mode: i.e. wait of new parent selection
         
         If mode is already on reparent, switch to none """
-        if self.edit_mode==self.DRAW_AXE:
+        if self.edit_mode==self.SKETCH_AXE:
             self.edit_mode = self.FREE
             self.show_message("Stop axe drawing")
         elif self.get_selection():
-            self.edit_mode = self.DRAW_AXE
+            self.edit_mode = self.SKETCH_AXE
             self.show_message("Draw axe")
+        else:#if self.get_selection():
+            self.edit_mode = self.SKETCH_AXE
+            self.show_message("Draw new axe")
         return True
         
-    def draw_segment(self, position, camera):
+    def sketch_segment(self, position, camera):
         """ add a segment at mouse click
         
         Currently, the position is the intersection of the line generated by 
@@ -520,8 +479,8 @@ class TreePresenter(_Presenter):
         TODO3: TODO1 with TODO2, what view-depth should to use?
                the plane intersecting (0,0,0)?
         """
-        selection = self.get_selection()
-        if not selection: return
+        ##selection = self.get_selection()
+        ##if not selection: return
         self.push_backup()
 
         # get position on z=0 plane
@@ -529,11 +488,16 @@ class TreePresenter(_Presenter):
         alpha = -eye.z/ray_dir.z
         x,y,z = map(lambda x: x[0]+alpha*x[1], zip(eye,ray_dir))
 
-        node_id = selection.id
-        children = self.model.children(node_id)
-        nbchild = len(children)
-        if nbchild==0: new_child_id, up = self.model.add_successor(node_id,position=_toV3((x,y,0)))
-        else:          new_child_id, up = self.model.add_branching(node_id,position=_toV3((x,y,0)))
+        selection = self.get_selection()
+        if selection:
+            node_id = selection.id
+            children = self.model.children(node_id)
+            nbchild = len(children)
+            if nbchild==0: new_child_id, up = self.model.add_successor(node_id,position=_toV3((x,y,0)))
+            else:          new_child_id, up = self.model.add_branching(node_id,position=_toV3((x,y,0)))
+        else:
+            new_child_id = self.model.new_vertex(position=_toV3((x,y,0)))
+            up = [new_child_id]
 
         # update views
         # ------------
@@ -580,31 +544,6 @@ class TreePresenter(_Presenter):
         
         return True
 
-    # mtg IO
-    # ------
-    ## make a generic open/save api in TreeEditor
-    #  eg: editor.add_open/save_dialog(keySeq,self.load/save_file, 'Open/Save MTG file',self.load/save_dir?,["MTG Files (*.mtg;*.bmtg)"])
-    def load_mtg_dialog(self):
-        """ select a mtg file with a user dialog window, then call `load_mtg` """
-        from openalea.vpltk.qt import QtGui
-        filename = QtGui.QFileDialog.getOpenFileName(self._editor, "Open MTG file",
-                                                self.model.default_directory(),
-                                                "MTG Files (*.mtg;*.bmtg);;All Files (*.*)",
-                                                QtGui.QFileDialog.DontUseNativeDialog)
-        if not filename: return
-        self.set_model(filename)
-        
-    def save_mtg_dialog(self):
-        """ select a mtg file with a user dialog window, then call `save_mtg` """
-        from openalea.vpltk.qt import QtGui
-        filename = QtGui.QFileDialog.getSaveFileName(self._editor, "Save MTG file",
-                                                self.model.default_directory(),
-                                                "MTG Files (*.mtg;*.bmtg);;All Files (*.*)",
-                                                QtGui.QFileDialog.DontUseNativeDialog)
-        if not filename: return
-        self.model.save_mtg(filename)
-
-        
     # opengl draw
     # -----------
     def draw(self, glrenderer):
@@ -620,10 +559,10 @@ class TreePresenter(_Presenter):
         self.ctrl_points.fastDraw(glrenderer)
 
         
-    def get_bounding_box(self):
+    def get_boundingbox(self):
         """ update and return the bounding box """
         self.ctrl_points.update_boundingbox()
-        return self.ctrl_points.boundingbox
+        return self.ctrl_points.get_boundingbox()
         
     # backup and undo
     # ---------------
@@ -643,5 +582,6 @@ class TreePresenter(_Presenter):
         else:
             self.show_message("undo impossible: no tree loaded")
 
-
+    def has_undo(self):
+        self.model.undo_number()>0
 

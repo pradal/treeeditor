@@ -409,9 +409,12 @@ class TreeModel(_Model):
         else:
             return False
         
+    def undo_number(self):
+        """ number of undo available """
+        return len(self.backupmtg)
 
 
-
+        
 class PASModel(TreeModel):
     """ A TreeModel which manages the Plant,Axe,Segment scales """
     
