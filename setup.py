@@ -85,7 +85,6 @@ setup(
     install_requires = install_requires,
     dependency_links = dependency_links,
 
-
     # Binary installation (if necessary)
     # Define what to execute with scons	
     scons_scripts=scons_scripts,
@@ -99,8 +98,8 @@ setup(
     include_package_data = True,
     # (you can provide an exclusion dictionary named exclude_package_data to remove parasites).
     # alternatively to global inclusion, list the file to include   
-    #package_data = {'' : ['*.pyd', '*.so'],},
-    share_dirs={'share':'share'},
+    package_data = {'' : ['*.png','*.jpg', '*.ini','*.pyd', '*.so'],},
+    share_dirs={'share':'share', 'test':'test'},
     
     # postinstall_scripts = ['',],
 
@@ -109,8 +108,7 @@ setup(
         #'wralea' : ['treeeditor = vplants.treeeditor_wralea' if has_project else 'treeeditor = treeeditor_wralea' ],
         #'console_scripts': [
         #       'fake_script = openalea.fakepackage.amodule:console_script', ],
-        # 'gui_scripts': [
-        #      'fake_gui = openalea.fakepackage.amodule:gui_script',],
+         'gui_scripts': ['TreeEditor = treeeditor.editor:main'],
         #	'wralea': wralea_entry_points
         },
     )

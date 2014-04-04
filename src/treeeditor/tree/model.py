@@ -179,8 +179,9 @@ class TreeModel(_Model):
     # -----------
     def new_vertex(self, position, radius=1):
         """ add a new *unconnected* vertex """
-        ## new_vertex: expect segment_scale=1
-        vid =  self.mtg.add_component(self.mtg.root)
+        vid = self.mtg.root
+        for s in range(self._segment_scale):
+            vid =  self.mtg.add_component(vid)
         self.set_position(vid, position=position)
         self.set_radius(vid, radius=radius)
         return vid
@@ -421,7 +422,7 @@ class PASModel(TreeModel):
     def set_mtg(self,mtg,filename=None, position=None, radius=None):
         """ set the `mtg` of this PASModel """
         TreeModel.set_mtg(self,mtg=mtg,filename=filename,position=position,radius=radius)
-        self._max_scale = 3
+        self._segment_scale = 3
         
     # mtg accessor
     # ------------

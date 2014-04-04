@@ -439,13 +439,17 @@ class TreeEditorWidget(_QGLViewer, _Presenter):
             if res==QtGui.QMessageBox.Cancel:
                 return
                 
-        filename = QtGui.QFileDialog.getOpenFileName(self, title,
-                                                get_shared_data('data'),
-                                                "All Files (*.*)",
-                                                QtGui.QFileDialog.DontUseNativeDialog)
+        filename = QtGui.QFileDialog.getOpenFileName(None, title,
+                                                get_shared_data(),
+                                                "All Files (*.*)")#,
+                                                #QtGui.QFileDialog.DontUseNativeDialog)
+        #d = QtGui.QFileDialog()
+        #d.setAcceptMode(QtGui.QFileDialog.AcceptOpen)
+        #filename = d.exec_()
+        
         if not filename:
             return
-        if callback:
+        if callback:               
             callback(filename)
         return filename
         
@@ -470,8 +474,8 @@ class TreeEditorWidget(_QGLViewer, _Presenter):
                 
         filename = QtGui.QFileDialog.getSaveFileName(self, title,
                                                 get_shared_data('data'),
-                                                "All Files (*.*)",
-                                                QtGui.QFileDialog.DontUseNativeDialog)
+                                                "All Files (*.*)")
+                                                #QtGui.QFileDialog.DontUseNativeDialog)
         if not filename:
             return
         if callback:
@@ -501,12 +505,22 @@ class TreeEditor(QtGui.QMainWindow):
         menu.addMenu(self.editor.get_edit_menu())
         menu.addMenu(self.editor.get_view_menu())
         
-def main():
+def main(model=None):
     """ simple test program """
+    from optparse import OptionParser
+    
+    parser = OptionParser()
+    parser.add_option("-m","--model", dest='model',help="tree model to use (default or 'PAS')")
+    options, args = parser.parse_args()
+    
     qapp = QtGui.QApplication([])
     viewer = TreeEditor()
     viewer.setWindowTitle("TreeEditor")
+    
+    if options.model and options.model.lower()=='pas':
+        from treeeditor.tree.model import PASModel
+        viewer.editor.tree.set_model(PASModel())
+    
     qapp.exec_()
 
-if __name__ == '__main__':
-    main()
+
