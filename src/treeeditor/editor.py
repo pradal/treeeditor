@@ -17,36 +17,33 @@ import openalea.plantgl.all as _pgl
 
 from PyQGLViewer import QGLViewer as _QGLViewer
 
-from treeeditor.mvp  import Presenter     as _Presenter
-from treeeditor.tree import TreePresenter as _TreePresenter
+from treeeditor.mvp  import AbstractEditor as _AbstractEditor
+from treeeditor.tree import TreePresenter  as _TreePresenter
 from treeeditor.background import BackgroundPresenter as _BackgroundPresenter
                                                                                 
 
-_toVec = lambda v : _qgl.Vec(*v)##v.x,v.y,v.z)
-##toV3  = lambda v : _pgl.Vector3(*v)##v.x,v.y,v.z)
+_toVec = lambda v : _qgl.Vec(*v)
+##toV3  = lambda v : _pgl.Vector3(*v)
 
 # TreeEditor main class
 # ---------------------
-class TreeEditorWidget(_QGLViewer, _Presenter):
+class TreeEditorWidget(_QGLViewer, _AbstractEditor):
     """
     Class that implements a QGLViewer interface for the edition of tree structures
     """
     Camera,Edition = range(2)
     _mode_name = {Camera:'Camera', Edition:'Edition'}
     
-    
-    def __init__(self, parent=None, tree=None, background=None, theme=None, **presenters):
+    def __init__(self, parent=None, tree='default', background='default', theme=None, **presenters):
         """ create a TreeEditor for `tree`, `background`, and other optional Presenter """
         # super __init__
         if parent: _QGLViewer.__init__(self,parent=None)
         else:      _QGLViewer.__init__(self)
                   
-        _Presenter.__init__(self,theme=theme)
+        _AbstractEditor.__init__(self,theme=theme)
                   
         # defaults
         self.mode  = self.Edition
-        ## global translation of the scene  ## removed as not used anymore (?)
-        #self.translation = None
         
         # clipping plane
         self.clippingPlaneEnabled = False        
@@ -72,36 +69,34 @@ class TreeEditorWidget(_QGLViewer, _Presenter):
         self.IO_callback = []
 
         # attach content to display
-        self.set_background(background)
-        self.set_tree(tree)
+        if background:
+            self.set_background(background)
+        if tree:
+            self.set_tree(tree)
         for name,pres in presenters.iteritems():
-            self.attach_presentation(name,pres)
+            self.attach_viewable(name,pres)
 
         # actions
         ##self.add_file_action('close editor',    self.close,          keys=['Ctrl+Q'])
-        self.add_view_action('refresh display', self.update_content, keys=['Space'])
+        self.add_view_action('refresh', self.look_at, keys=['Space'], checked=False)
 
 
     # add/set tree and background
     # ---------------------------
     def set_tree(self, tree):
         """ set the TreePresenter object to be edited """
-        if tree is None:
+        if tree is None or tree=='default':
             tree = _TreePresenter()
-            
-        self.attach_presentation('tree',tree)
+        self.attach_viewable('tree',tree)
+        self.set_edited_presenter('tree')
+        if not tree.is_empty():
+            self.look_at(tree.get_boundingbox())
         
     def set_background(self, background):
         """ set the background view object """
-        if background is None: 
+        if background is None or background=='default':
             background = _BackgroundPresenter()
-                                                 
-        self.attach_presentation('background',background)
-
-    def attach_presentation(self, name, presentation):
-        """ attach `presentation` to this Editor as attribute `name` """
-        self.attach_view(name=name, view=presentation)
-                     
+        self.attach_viewable('background',background)
 
     # clipping plane of displayed content
     # -----------------------------------
@@ -129,11 +124,7 @@ class TreeEditorWidget(_QGLViewer, _Presenter):
     def init(self):
         """ initialize opengl environement """
         self.set_mode(self.Camera)
-        
-        self.camera().setViewDirection(_qgl.Vec(0,-1,0))
-        self.camera().setUpVector(_qgl.Vec(0,0,1))
-        
-        self.background.__gl_init__()
+        self.set_camera('3D')
         
     def set_mode(self,mode):
         """ set editor mode and related QGLViewer states """
@@ -166,16 +157,27 @@ class TreeEditorWidget(_QGLViewer, _Presenter):
         self.set_mode(not self.mode)
         self.updateGL()
 
-    def set_2d_camera(self):
-        """ constraint camera to view at the 2D x-y plane """ 
-        cam = self.camera()
-        cam.setType(cam.ORTHOGRAPHIC)
-        cam.setUpVector(_toVec([0,-1,0]))
-        cam.setViewDirection(_toVec([0,0,1]))
+    def set_camera(self, camera='3D'):
+        """ set camera type
         
-        constraint = _qgl.WorldConstraint()
-        constraint.setRotationConstraintType(_qgl.AxisPlaneConstraint.FORBIDDEN)
-        cam.frame().setConstraint(constraint)
+        Either:
+         - '3D': an (unconstraint) perpective camera
+         - '2D': an orthographic view contraint on the 2D x-y plane
+        """
+        cam = self.camera()
+        if camera=='3D':
+            cam.setType(cam.PERSPECTIVE)
+            cam.setViewDirection(_qgl.Vec(0,-1,0))
+            cam.setUpVector(_qgl.Vec(0,0,1))
+            cam.frame().setConstraint(None)
+        else:
+            cam.setType(cam.ORTHOGRAPHIC)
+            cam.setUpVector(_toVec([0,-1,0]))
+            cam.setViewDirection(_toVec([0,0,1]))
+            
+            constraint = _qgl.WorldConstraint()
+            constraint.setRotationConstraintType(_qgl.AxisPlaneConstraint.FORBIDDEN)
+            cam.frame().setConstraint(constraint)
         
     def setManipulatedFrame(self, obj):
         """ set `obj` as this Viewer manipulated frame, and set according mode """
@@ -194,44 +196,6 @@ class TreeEditorWidget(_QGLViewer, _Presenter):
         else:
             self.camera().setRevolveAroundPoint(self.sceneCenter())
             
-    def update_scene_bbox(self, lookAt=None):
-        """
-        Update scene boundingbox
-        
-        `lookAt` (optional) Either:
-            - a BoundingBox object to focus camera on
-            - 'all', to look at the whole scene
-            - 'tree', to look at the whole tree
-                
-        Return the update scene bounding box 
-        """
-        views = filter(None, [getattr(self,'background',None),getattr(self,'tree',None)]+
-                              getattr(self,'presenters',[]))
-        bbox_all = map(lambda p: p.get_boundingbox(), views)
-        bbox = filter(None, bbox_all)
-        
-        if len(bbox)==0:
-            self.show_message('Editor scene is empty')
-            return
-            
-        bbox = reduce(lambda x,y: x+y, bbox)
-        cam = self.camera()
-        cam.setSceneRadius(_pgl.norm(bbox.lowerLeftCorner-bbox.upperRightCorner))
-        cam.setSceneCenter(_toVec(bbox.lowerLeftCorner+bbox.upperRightCorner)/2)
-        
-        if lookAt:
-            if lookAt=='all':
-                lookAt = bbox
-            elif lookAt=='tree':
-                if bbox_all[1]:
-                    lookAt = bbox_all[1]
-                else:
-                    lookAt = bbox
-            cam.fitBoundingBox(_toVec(lookAt.lowerLeftCorner),_toVec(lookAt.upperRightCorner))
-            
-        self.updateGL()
-                                                    
-        
     # rendering and printing
     # ----------------------
     def draw(self):
@@ -257,70 +221,23 @@ class TreeEditorWidget(_QGLViewer, _Presenter):
             _gl.glDisable(_gl.GL_CLIP_PLANE0)
             _gl.glDisable(_gl.GL_CLIP_PLANE1)
         
-        _Presenter.draw(self, self.glrenderer)
+        _AbstractEditor.draw(self, self.glrenderer)
             
     def fastDraw(self):
         """ fast (re)paint in opengl """
-        _Presenter.fastDraw(self, self.glrenderer)
-
+        _AbstractEditor.fastDraw(self, self.glrenderer)
     
-    def show_message(self,message,timeout = 0):
+    def show_message(self,message,timeout = 5000):
         """ display a message """
         self.displayMessage(message,timeout)
         print message
         self.updateGL()
         
-    # actions and menus
-    # -----------------
-    def get_file_actions(self):
-        """ Return the list of file actions provided by all presenters """
-        actions = []
-        for name,presenter in self.get_views():
-            actions.extend(presenter.get_file_actions())
-            actions.append(None)
-            
-        actions.append(None)
-        actions.extend(_Presenter.get_file_actions(self))
-                
-        return actions
-        
-    def get_edit_actions(self):
-        """ Return the list of edit actions provided by all presenters """
-        actions = []
-        for name,presenter in self.get_views():
-            actions.extend(presenter.get_edit_actions())
-                
-        return actions
-    
-        
-    def get_view_actions(self):
-        """ Return the list of view actions provided by all presenters """
-        actions = []
-        for name,presenter in self.get_views():
-            actions.extend(presenter.get_view_actions())
-        actions.append(None)
-        actions.extend(_Presenter.get_view_actions(self))
-                
-        return actions
-        
+    # menus
+    # -----
     def get_file_menu(self):
         """ generate the file menu """
-        def io_dialog(action):
-            """ if required, insert open/save_dialog callback """
-            action = dict(**action)
-            dialog      = action.get('dialog')
-            description = action['description']
-            function    = action['function']
-            warning     = action.get('warning')
-            if dialog=='save':
-                from functools import partial
-                action['function'] = partial(self.savefile_dialog, description, function, warning)
-            elif dialog=='open':
-                from functools import partial
-                action['function'] = partial(self.openfile_dialog, description, function, warning)
-            return action
-            
-        return self._create_menu('File', self.get_file_actions(), io_dialog)
+        return self._create_menu('File', self.get_file_actions())
 
     def get_edit_menu(self):
         """ generate the edit menu """
@@ -333,18 +250,24 @@ class TreeEditorWidget(_QGLViewer, _Presenter):
     def _create_menu(self, title, actions, filter_dict=None):
         """ create an QMenu for get_***_menu """
         menu = QtGui.QMenu(title, self)
-        
         for action in actions:
-            if action is None: 
-                menu.addSeparator()
-            else:
-                if filter_dict: action = filter_dict(action)
-                menu.addAction(self._create_action(**action))
+            if action is None: menu.addSeparator()
+            else:              menu.addAction(self._create_action(**action))
+        menu.addSeparator()
         
         return menu
         
     def _create_action(self, description, function, keys=None, **kargs):
         """ create an QAction for _creat_menu """
+        dialog  = kargs.get('dialog')
+        warning = kargs.get('warning')
+        if dialog=='save':
+            from functools import partial
+            function = partial(self.savefile_dialog, description, function, warning)
+        elif dialog=='open':
+            from functools import partial
+            function = partial(self.openfile_dialog, description, function, warning)
+            
         action = QtGui.QAction(description, self)
         action.triggered.connect(function)
         
@@ -355,10 +278,11 @@ class TreeEditorWidget(_QGLViewer, _Presenter):
             
         if keys:
             action.setShortcuts([QtGui.QKeySequence(kseq).toString() for kseq in keys])
+            
         return action
         
-    # manage mouse and keyboard events
-    # --------------------------------
+    # mouse and keyboard events
+    # -------------------------
     def _mouse_string(self,event):                                  
         """ contruct key sequence string from mouse `event` """
         modifiers = event.modifiers()
@@ -381,40 +305,78 @@ class TreeEditorWidget(_QGLViewer, _Presenter):
           - camera: this viewer camera
         """
         buttons = self._mouse_string(event)
-        if 'Right' not in buttons:
-            processed = self.tree.mousePressEvent(buttons,event.pos(),self.camera())
-        else:
-            processed = False
+        edited = self.get_edited_presenter()
+        if 'Right' not in buttons and edited:
+            processed = edited.mousePressEvent(buttons,event.pos(),self.camera())
+            if processed:
+                return
             
-        if not processed:
-            return _QGLViewer.mousePressEvent(self,event)
+        return _QGLViewer.mousePressEvent(self,event)
         
     def mouseReleaseEvent(self,event):
         """ distribute relase event and  """
         buttons = self._mouse_string(event)
-        processed = self.tree.mouseReleaseEvent(buttons,event.pos(),self.camera())
-        if not processed:
-            return _QGLViewer.mouseReleaseEvent(self,event)
+        edited = self.get_edited_presenter()
+        if edited:
+            processed = edited.mouseReleaseEvent(buttons,event.pos(),self.camera())
+            if processed:
+                return
+        return _QGLViewer.mouseReleaseEvent(self,event)
         
     def contextMenuEvent(self, event):
         """ generate a context menu on click"""
         buttons = self._mouse_string(event)
-        menu = self.tree.contextMenuEvent(buttons, event.pos(),self.camera())
-        if menu:
-            menu = self._create_menu('Context', menu)
-            menu.exec_(event.globalPos())
-            return
+        edited = self.get_edited_presenter()
+        if edited:
+            menu = edited.contextMenuEvent(buttons, event.pos(),self.camera())
             
+            if menu:
+                menu = self._create_menu('Context', menu)
+                menu.exec_(event.globalPos())
+                return
+                
         return _QGLViewer.contextMenuEvent(self,event)
 
 
     # updating
     # --------
-    def update_content(self, lookAt='all'):
-        self.update_scene_bbox(lookAt=lookAt)
-        parent = self.parent()
-        if parent:
-            parent.update_menu()
+    def _compute_boundingbox(self):
+        """
+        Compute scene boundingbox center and radius
+        
+        `lookAt` (optional) Either:
+            - a BoundingBox object to focus camera on
+            - 'all', to look at the whole scene
+            - 'tree', to look at the whole tree
+                
+        Return the update scene bounding box 
+        """
+        _AbstractEditor._compute_boundingbox(self)
+        
+        bbox = self.get_boundingbox()
+        if not bbox:
+            return
+            
+        cam = self.camera()
+        cam.setSceneRadius(_pgl.norm(bbox.lowerLeftCorner-bbox.upperRightCorner))
+        cam.setSceneCenter(_toVec(bbox.lowerLeftCorner+bbox.upperRightCorner)/2)
+
+    def look_at(self, bbox='scene'):
+        """ set camera to look at given `bbox` """
+        scene_bbox = self.get_boundingbox()
+        
+        edited = self.get_edited_presenter()
+        if bbox==False and edited:
+            bbox = edited.get_boundingbox()
+        elif bbox=='scene' or isinstance(bbox,bool):
+            bbox = scene_bbox
+            
+        if bbox is None:
+            self.show_message('*** look_at error: bbox is None ***')
+        else:
+            self.camera().fitBoundingBox(_toVec(bbox.lowerLeftCorner),_toVec(bbox.upperRightCorner))
+            self.updateGL()
+                                                    
     def updateGL(self):
         _QGLViewer.updateGL(self)
         
@@ -485,42 +447,60 @@ class TreeEditorWidget(_QGLViewer, _Presenter):
 
         
 class TreeEditor(QtGui.QMainWindow):
-    def __init__(self):
+    def __init__(self, editor=None):
         QtGui.QMainWindow.__init__(self)
                                                                                                  
         # tree editor
-        self.editor = TreeEditorWidget()
+        if not editor:
+            editor = TreeEditorWidget()
+        self.editor = editor
         self.setCentralWidget(self.editor)
         self.editor.show()
         
         self.update_menu()
         self.show()
         
+    def sizeHint(self):
+        return QtCore.QSize(800,600)
+        
     def update_menu(self):
         """ (re)create menus """
         menu = self.menuBar()
         for submenu in menu.actions():
             menu.removeAction(submenu)
-        menu.addMenu(self.editor.get_file_menu())
+        
+        file_menu = self.editor.get_file_menu()
+        file_menu.addSeparator()  ## does not work...?
+        quit_action = QtGui.QAction("Quit editor", self)
+        quit_action.triggered.connect(self.close)
+        quit_action.setShortcuts(["Ctrl+Q"])
+        file_menu.addAction(quit_action)
+        menu.addMenu(file_menu)
+        
         menu.addMenu(self.editor.get_edit_menu())
         menu.addMenu(self.editor.get_view_menu())
         
-def main(model=None):
-    """ simple test program """
+        
+def start_editor(model=None, inline=False):
+    qapp = QtGui.QApplication([])
+    viewer = TreeEditor()
+    viewer.setWindowTitle("TreeEditor")
+    
+    if model and model.lower()=='pas':
+        from treeeditor.tree.model import PASModel
+        viewer.editor.tree.set_model(PASModel())
+    
+    if inline: return viewer, qapp
+    else:      qapp.exec_()
+    
+def main():
+    """ editor as an executable program """
     from optparse import OptionParser
     
     parser = OptionParser()
     parser.add_option("-m","--model", dest='model',help="tree model to use (default or 'PAS')")
     options, args = parser.parse_args()
-    
-    qapp = QtGui.QApplication([])
-    viewer = TreeEditor()
-    viewer.setWindowTitle("TreeEditor")
-    
-    if options.model and options.model.lower()=='pas':
-        from treeeditor.tree.model import PASModel
-        viewer.editor.tree.set_model(PASModel())
-    
-    qapp.exec_()
+    start_editor(model=options.model)
 
-
+if __name__=='__main__':
+    main()

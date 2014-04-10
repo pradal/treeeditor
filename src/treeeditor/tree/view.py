@@ -63,7 +63,7 @@ class ControlPointsView(AbstractView):
 
     # accessors
     # ---------
-    def point_at(self, line_start, direction, z_min, z_max, factor=10):
+    def point_at(self, line_start, direction, z_min, z_max, factor=2):
         """ 
         Find the control point intersected by a line (for mouse selections) 
         
@@ -91,7 +91,7 @@ class ControlPointsView(AbstractView):
                 z = ray_dir * p                    # distance from start along line (depth)
                 d = norm(p-z*ray_dir)              # distance from p to line
                 
-                radius = self.theme['point_diameter']/2.
+                radius = self.theme['point_diameter']
                 if d<factor*radius and z_min<=z<=z_max:
                     if d>radius: z = float('inf')  ## induce a sort by d only
                     possibles.append((z,d,ctrl_point))
@@ -142,6 +142,7 @@ class ControlPointsView(AbstractView):
         
         self.scene = _pgl.Scene(point_repr)
         self.scene_index = dict((point.id,i) for i,point in enumerate(self.scene))
+        self.update_boundingbox()
 
     def update(self,node_id):
         """ update representation of the control point related to `node_id` """
@@ -156,6 +157,7 @@ class ControlPointsView(AbstractView):
         self.content[node_id] = point
         self.scene += point.representation(self.graphical_primitive)
         self.scene_index[point.id] = len(self.scene)-1
+        self.update_boundingbox()
         
         return point
         
@@ -167,6 +169,7 @@ class ControlPointsView(AbstractView):
             scene_index = self.scene_index[node_id]
             del self.scene[scene_index]
             self.scene_index = dict((point.id,i) for i,point in enumerate(self.scene))
+        #self.update_boundingbox()
         
     @staticmethod
     def create_ctrl_points(model, color, callback):
@@ -242,6 +245,7 @@ class EdgesView(AbstractView):
         
         self.scene = _pgl.Scene(self.content.values())
         self.scene_index = dict((edge.id,i) for i,edge in enumerate(self.scene))
+        self.update_boundingbox()
 
     def update(self, node_id, model):
         """ update representation of edges in contact to node `node_id` """
@@ -271,6 +275,7 @@ class EdgesView(AbstractView):
         
         self.scene += edge
         self.scene_index[edge.id] = len(self.scene)-1
+        self.update_boundingbox()
         
         return edge
         
@@ -284,6 +289,7 @@ class EdgesView(AbstractView):
                 scene_index = self.scene_index[node_id]
                 del self.scene[scene_index]
                 self.scene_index = dict((point.id,i) for i,point in enumerate(self.scene))
+        #self.update_boundingbox()
         
     @staticmethod
     def create_edge(pos1,pos2,color, edge_id, theme):
@@ -305,5 +311,6 @@ class _PositionSetter:
         self.index = index
     def __call__(self,pos):
         self.model.set_position(self.index,pos)
+        ##model has no update_boundingbox - self.model.update_boundingbox()
         
 

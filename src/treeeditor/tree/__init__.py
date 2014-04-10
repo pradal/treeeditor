@@ -41,19 +41,19 @@ class TreePresenter(_Presenter):
         # model and views
         ctrl_points = _ControlPointsView(theme=self.theme)
         edges       = _EdgesView(theme=self.theme)
-        self.attach_view('ctrl_points',ctrl_points)
-        self.attach_view('edges',edges)
+        self.attach_viewable('ctrl_points',ctrl_points)
+        self.attach_viewable('edges',edges)
         self.set_model(tree)
 
         # edition attributes
-        self.edit_mode = self.FREE
+        self.set_edition_mode(self.FREE)
         self.focus = None      # id of the focussed control point (if any) 
         self.selection = None  # id of the selected control point (if any)
 
         # register actions
-        self.add_file_action('Open mtg file (.mtg or .bmtg)',self.set_model, dialog='open', keys= ['Ctrl+O'],
+        self.add_file_action('Open mtg file',self.set_model, dialog='open', keys= ['Ctrl+O'],
                              warning=lambda : False if self.is_empty() else 'Current tree will be lost. Continue?')
-        self.add_file_action('Save mtg file (.mtg or .bmtg)',self.save_model, dialog='save', keys= ['Ctrl+S'])
+        self.add_file_action('Save mtg file',self.save_model, dialog='save', keys= ['Ctrl+S'])
 
         self.add_edit_action('undo',            self.undo,         keys=['Ctrl+Z'], isenable=self.has_undo)
         
@@ -73,7 +73,17 @@ class TreePresenter(_Presenter):
         self.add_edit_action('dec point size', self.ctrl_points.dec_point_size, keys=['-'])
         self.add_edit_action('inc point size', self.ctrl_points.inc_point_size, keys=['+','='])
 
-    def set_model(self, tree):
+        self.add_view_action(description='display ctrl points',
+                                 function=self.ctrl_points.show,
+                                 checked=self.ctrl_points.display,
+                                 keys=['Shift+P'])
+        self.add_view_action(description='display edges',
+                                 function=self.edges.show,
+                                 checked=self.edges.display,
+                                 keys=['Shift+E'])
+
+
+    def set_model(self, tree=None):
         """ set the tree model managed by this TreePresenter 
         
         `tree` is either
@@ -88,6 +98,9 @@ class TreePresenter(_Presenter):
                 model_class = self.model.__class__
             else: 
                 model_class = _TreeModel
+                
+            if isinstance(tree,bool): # for call by Qt
+                tree = None
             self.model = model_class(mtg=tree, presenter=self)
         else:
             tree.set_presenter(self)
@@ -124,24 +137,21 @@ class TreePresenter(_Presenter):
                 
     def reset_views(self, update_camera=False):
         """ Reset all views from model """
-        if self.model.mtg is None: ## is_ready(), is_empty...?
-            self.ctrl_points.clear()
-            self.edges.clear()
-        else:
+        ##self.ctrl_points.clear()
+        ##self.edges.clear()
+        node_number = len(self.model.get_nodes())
+        if node_number:
             self.ctrl_points.create(self.model,self.update_views)
             self.edges.create(self.model)
-            self.edges.update_boundingbox()
+            ##self.edges.update_boundingbox()
             
         self._point_to_update = set()
         self._edges_to_update = set()
         self._added_view_node = set()
         self._deleted_view_node = set()
         
-        if self._presenter:
-            if update_camera:
-                update_camera = self.edges.get_boundingbox()
-            self.update_content(lookAt=update_camera)
-
+        if node_number and update_camera:
+            self.look_at()
 
     def delete_view_node(self, node_id):
         """ delete view content related to node_id """
@@ -156,19 +166,17 @@ class TreePresenter(_Presenter):
         if len(self._deleted_view_node):
             self.reset_views()
             return
+        ##    self.ctrl_points.delete_points(self._deleted_view_node)
+        ##    self.edges.delete_edges(self._deleted_view_node)
+        ##    
+        ##    self._point_to_update.symmetric_difference_update(self._deleted_view_node)
+        ##    self._edges_to_update.symmetric_difference_update(self._deleted_view_node)
             
         if len(self._added_view_node):
             self.update_views(self._added_view_node)
             for new_node in self._added_view_node:
                 self.ctrl_points.add_point(new_node,self.model,self.update_views)
                 self.edges.add_edge(new_node,self.model)
-        
-        ##if len(self._deleted_view_node):
-        ##    self.ctrl_points.delete_points(self._deleted_view_node)
-        ##    self.edges.delete_edges(self._deleted_view_node)
-        ##    
-        ##    self._point_to_update.symmetric_difference_update(self._deleted_view_node)
-        ##    self._edges_to_update.symmetric_difference_update(self._deleted_view_node)
         
         for node_id in self._point_to_update:
             self.ctrl_points.update(node_id)
@@ -180,8 +188,8 @@ class TreePresenter(_Presenter):
         self._added_view_node = set()
         self._deleted_view_node = set()
         
-    # manage event
-    # -----------------------
+    # events
+    # ------                                        
     def mousePressEvent(self, keys, position, camera):
         """ Process mouse press event
             
@@ -208,7 +216,7 @@ class TreePresenter(_Presenter):
         # no control point
         elif ctrl_point is None:
             self.set_selection(None)
-            self.edit_mode = self.FREE
+            self.set_edition_mode(self.FREE)
             
         # edition of node position
         elif self.edit_mode == self.FREE:
@@ -237,21 +245,22 @@ class TreePresenter(_Presenter):
                 return self.get_edit_actions()
         
         return None
-    # manage edition mode and selection
-    # ---------------------------------
-    def set_edition_mode(self, edit=True):
+    # edition mode and selection
+    # --------------------------
+    def set_edition_mode(self, mode):
         """ set mode edition if `edit`, or stop it otherwise """
-        if edit:
-            self.edit_mode = self.EDITION
+        self.edit_mode = mode
+        if mode==self.EDITION:
             self.push_backup()
             self.ctrl_points.set_focus(self.selection)
-            self._presenter.setManipulatedFrame(self.selection)
+            if self._presenter:
+                self._presenter.setManipulatedFrame(self.selection)
         else:
-            self.edit_mode = self.FREE
             self.ctrl_points.set_focus(None)
-            self._presenter.setManipulatedFrame(None)
+            if self._presenter:
+                self._presenter.setManipulatedFrame(None)
         
-    def set_selection(self,point=None, model_id=None):
+    def set_selection(self,point=None, model_id=None, message=True):
         """ Set focus to the given control point """
         # remove previous selection
         if self.selection:
@@ -259,7 +268,7 @@ class TreePresenter(_Presenter):
             self.ctrl_points.update(self.selection.id)
             
         # select given point
-        self.apply_view_update() # only if required?
+        self.apply_view_update()
         if point is None and model_id is not None:
             point = self.ctrl_points.get_point(model_id)
             
@@ -268,15 +277,17 @@ class TreePresenter(_Presenter):
             self.selection.selected = True
             self.ctrl_points.update(self.selection.id)
             self._presenter.setRevolveAroundPoint(self.selection.position())
-            self.show_message('Node %d selected' % self.selection.id)
-            self.ctrl_points.set_focus(None)
-            self._presenter.setRevolveAroundPoint(None)
+            if message:
+                self.show_message('Node %d selected' % self.selection.id)
 
         self.updateGL()
         
     def unselect(self):
-        """ set selection to None"""
+        """ set selection to None and set FREE mode """
         self.set_selection(None)
+        self.set_edition_mode(self.FREE)
+        self.show_message('UNSELECT')
+        
     def get_selection(self):
         """ return the selected object, or None and print a message"""
         if not self.selection:
@@ -449,13 +460,13 @@ class TreePresenter(_Presenter):
         
         If mode is already on reparent, switch to none """
         if self.edit_mode==self.SKETCH_AXE:
-            self.edit_mode = self.FREE
+            self.set_edition_mode(self.FREE)
             self.show_message("Stop axe drawing")
         elif self.get_selection():
-            self.edit_mode = self.SKETCH_AXE
+            self.set_edition_mode(self.SKETCH_AXE)
             self.show_message("Draw axe")
         else:#if self.get_selection():
-            self.edit_mode = self.SKETCH_AXE
+            self.set_edition_mode(self.SKETCH_AXE)
             self.show_message("Draw new axe")
         return True
         
@@ -471,16 +482,14 @@ class TreePresenter(_Presenter):
         otherwise.
         
         
-        TODO1: create a "start" segment if selection is None
+        TODO1: create a "start" segment if selection is None - done
         
         TODO2: intersection with the view-plane (perpendicular to camera dir)
         positioned at the same view-depth as the selection point.
         
         TODO3: TODO1 with TODO2, what view-depth should to use?
-               the plane intersecting (0,0,0)?
+               the plane intersecting (0,0,0)? scene center?
         """
-        ##selection = self.get_selection()
-        ##if not selection: return
         self.push_backup()
 
         # get position on z=0 plane
@@ -493,10 +502,12 @@ class TreePresenter(_Presenter):
             node_id = selection.id
             children = self.model.children(node_id)
             nbchild = len(children)
-            if nbchild==0: new_child_id, up = self.model.add_successor(node_id,position=_toV3((x,y,0)))
-            else:          new_child_id, up = self.model.add_branching(node_id,position=_toV3((x,y,0)))
+            if nbchild==0: 
+                new_child_id, up = self.model.add_successor(node_id,position=(x,y,0))
+            else:
+                new_child_id, up = self.model.add_branching(node_id,position=(x,y,0))
         else:
-            new_child_id = self.model.new_vertex(position=_toV3((x,y,0)))
+            new_child_id = self.model.new_vertex(position=(x,y,0))
             up = [new_child_id]
 
         # update views
@@ -505,17 +516,18 @@ class TreePresenter(_Presenter):
         self.update_views(up)
             
         # update self
-        self.set_selection(model_id=new_child_id)
+        self.set_selection(model_id=new_child_id, message=False)
+        self.show_message('New node sketched: '+str(new_child_id))
         
     def reparent_mode(self):
         """ set reparent edition mode: i.e. wait of new parent selection
         
         If mode is already on reparent, switch to none """
         if self.edit_mode==self.REPARENT:
-            self.edit_mode = self.FREE
+            self.set_edition_mode(self.FREE)
             self.show_message("Stop new parent selection")
         else:
-            self.edit_mode = self.REPARENT
+            self.set_edition_mode(self.REPARENT)
             self.show_message("Select new parent")
         return True
         
@@ -544,8 +556,8 @@ class TreePresenter(_Presenter):
         
         return True
 
-    # opengl draw
-    # -----------
+    # rendering
+    # ---------
     def draw(self, glrenderer):
         """ draw the tree in given `glrenderer` """
         self.apply_view_update()
@@ -559,29 +571,39 @@ class TreePresenter(_Presenter):
         self.ctrl_points.fastDraw(glrenderer)
 
         
-    def get_boundingbox(self):
+    def _compute_boundingbox(self):
         """ update and return the bounding box """
-        self.ctrl_points.update_boundingbox()
-        return self.ctrl_points.get_boundingbox()
+        _Presenter._compute_boundingbox(self,self.ctrl_points.get_boundingbox())
         
     # backup and undo
     # ---------------
     def push_backup(self):
         """ push a copy of current mtg in undo list (i.e. backup) """ 
         if self.model:
-            self.model.push_backup()
+            state = dict(mode=self.edit_mode)
+            if self.selection:
+                state['selection_id'] = self.selection.id
+            self.model.push_backup(state=state)
         
     def undo(self):
         """ pop last backed up mtg """
-        if self.model:
-            if self.model.undo():
-                self.show_message("Last stored tree reloaded")
-            else:
-                self.show_message("undo impossible: no backup available.")
-            self.reset_views()
-        else:
+        if not self.model:
             self.show_message("undo impossible: no tree loaded")
+            return
+            
+        if not self.has_undo():
+            self.show_message("undo impossible: no backup available.")
+            return
+            
+        # reload model and views  
+        self.set_selection(None)
+        state = self.model.undo()
+        self.reset_views()
+        
+        self.set_selection(model_id=state.get('selection_id'), message=False)
+        ##self.set_edition_mode(state.get('mode', self.FREE))
+        self.show_message("Last stored tree reloaded")
 
     def has_undo(self):
-        self.model.undo_number()>0
+        return self.model.undo_number()>0
 

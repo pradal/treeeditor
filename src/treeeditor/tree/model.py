@@ -107,7 +107,7 @@ class TreeModel(_Model):
             elif position is None:
                 raise IOError("could not find position properties: either XX,YY,ZZ ; x,y,z ; position")
                     
-        # autodetect position
+        # autodetect radius
         if radius is None:
             prop = self.mtg.property_names()
             if 'r' in prop:
@@ -125,6 +125,15 @@ class TreeModel(_Model):
             self.get_position = self.get_position_triplet
             self.set_position = self.set_position_triplet
 
+        # assert position and radius properties exists
+        prop = self.mtg.properties()
+        if isinstance(position,basestring):
+            prop.setdefault(position,{})
+        else:
+            for pos in position:
+                prop.setdefault(pos,{})
+                
+        prop.setdefault(radius,{})
 
     # position and radius accessors
     # -----------------------------
@@ -182,6 +191,7 @@ class TreeModel(_Model):
         vid = self.mtg.root
         for s in range(self._segment_scale):
             vid =  self.mtg.add_component(vid)
+            print 'node added: %d (scale:%d)' % (vid,self.mtg.scale(vid))
         self.set_position(vid, position=position)
         self.set_radius(vid, radius=radius)
         return vid
@@ -395,18 +405,18 @@ class TreeModel(_Model):
         
     # backup and undo
     # ---------------
-    def push_backup(self):
-        """ push a copy of current mtg in undo list (i.e. backup) """ 
+    def push_backup(self, state=None):
+        """ store a copy of mtg and given state in undo list (i.e. backup) """ 
         from copy import deepcopy
         if len(self.backupmtg) == self.maxbackup:
             del self.backupmtg[0]
-        self.backupmtg.append(deepcopy(self.mtg))
+        self.backupmtg.append([deepcopy(self.mtg),state])
         
     def undo(self):
-        """ pop last backed up mtg """         
+        """ pop last backed up mtg and state, and return state """         
         if len(self.backupmtg) > 0:
-            self.mtg = self.backupmtg.pop()
-            return True
+            self.mtg, state = self.backupmtg.pop()
+            return state
         else:
             return False
         
