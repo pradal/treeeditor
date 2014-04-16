@@ -82,6 +82,9 @@ class TreePresenter(_Presenter):
                                  checked=self.edges.display,
                                  keys=['Shift+E'])
 
+        self.add_view_action(description='next color',
+                                 function=self.next_color,
+                                 keys=['Shift+C'])
 
     def set_model(self, tree=None):
         """ set the tree model managed by this TreePresenter 
@@ -152,6 +155,8 @@ class TreePresenter(_Presenter):
         
         if node_number and update_camera:
             self.look_at()
+            
+        self.updateGL()
 
     def delete_view_node(self, node_id):
         """ delete view content related to node_id """
@@ -178,9 +183,9 @@ class TreePresenter(_Presenter):
                 self.ctrl_points.add_point(new_node,self.model,self.update_views)
                 self.edges.add_edge(new_node,self.model)
         
-        for node_id in self._point_to_update:
+        for node_id in filter(None,self._point_to_update):
             self.ctrl_points.update(node_id)
-        for node_id in self._edges_to_update:
+        for node_id in filter(None,self._edges_to_update):
             self.edges.update(node_id, self.model)
             
         self._point_to_update = set()
@@ -575,6 +580,10 @@ class TreePresenter(_Presenter):
         """ update and return the bounding box """
         _Presenter._compute_boundingbox(self,self.ctrl_points.get_boundingbox())
         
+    def next_color(self):
+        """ switch color model """
+        self.model.next_color()
+        self.reset_views()
     # backup and undo
     # ---------------
     def push_backup(self):

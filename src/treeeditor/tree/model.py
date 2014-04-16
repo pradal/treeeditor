@@ -6,6 +6,7 @@ from openalea.mtg import MTG  as _MTG
 from treeeditor import io
 from treeeditor.mvp import Model as _Model
 
+
 class TreeModel(_Model):
     """
     TreeModel are generalized interface for (axial) trees stored as mtg
@@ -49,9 +50,15 @@ class TreeModel(_Model):
             find it, it create its.
             Unfound radius are set to 1
         """
+        _Model.__init__(self, presenter=presenter)
         # backup (undo) system
         self.backupmtg = []
         self.maxbackup = 4
+
+        # color
+        self._color_fct = [('branch',self.branch_color)]
+        self._current_color = -2
+        self.next_color()
 
         self.set_presenter(presenter)
         
@@ -189,9 +196,9 @@ class TreeModel(_Model):
     def new_vertex(self, position, radius=1):
         """ add a new *unconnected* vertex """
         vid = self.mtg.root
-        for s in range(self._segment_scale):
-            vid =  self.mtg.add_component(vid)
-            print 'node added: %d (scale:%d)' % (vid,self.mtg.scale(vid))
+        for s in range(self._segment_scale-1):
+            vid = self.mtg.add_component(vid)
+        vid = self.mtg.add_component(vid, edge_type='+')
         self.set_position(vid, position=position)
         self.set_radius(vid, radius=radius)
         return vid
@@ -242,11 +249,11 @@ class TreeModel(_Model):
           - the set of updated vertices
         """
         parent = self.parent(child)
-        vertex = self.mtg.insert_parent(child)
+        child_edge = self.mtg.edge_type(child)
+        vertex = self.mtg.insert_parent(child, edge_type=child_edge)
         self.set_position(vertex, position)
         
         up = set([child,vertex,parent])
-        child_edge = self.mtg.edge_type(child)
         up.update(self.replace_parent(child,  vertex, edge_type='<'))
         up.update(self.replace_parent(vertex, parent, edge_type=child_edge))
 
@@ -297,15 +304,25 @@ class TreeModel(_Model):
         
         return the set of updated vertices
         """
-        parent = self.parent(vertex)
-        updated = set([parent]+self.children(vertex))
+        parent   = self.parent(vertex)
+        children = self.children(vertex)
+        updated = set([parent]+children)
         
+        if parent is None and len(children):
+            raise TypeError("cannot remove root vertex with children")
+            
         if self.mtg.edge_type(vertex)=='+' and self.successor(parent) is not None:
             s = self.successor(vertex)
             if s:
                 self.mtg.property('edge_type')[s] = '+'
         
+        ##if parent:
         self.mtg.remove_vertex(vertex, reparent_child=reparent_child)
+        ##else:
+        ##    for child in children[:]:  # make a copy cuz loop modify children 
+        ##        print vertex, child, children
+        ##        self._disconnect_tree(vertex, child)
+        ##    self.mtg.remove_vertex(vertex, reparent_child=False)
 
         return updated
         
@@ -317,10 +334,35 @@ class TreeModel(_Model):
         removed = _mtgalgo.descendants(self.mtg, vertex)
         self.mtg.remove_tree(vertex)
         return set(removed)
+
+    def _disconnect_tree(self, parent, vertex):
+        """ 
+        Disconnect tree starting at `vertex` from `parent` 
+        ** works only if scale(parent)==scale(vertex)==max_scale **
+        """
+        del self.mtg._parent[vertex]
+        self.mtg._children[parent].remove(vertex)
+        ## in general: components(parent)&components(vertex)) should be disconnnected
         
     # appearance
     # ----------
-    def color(self, vid):
+    def next_color(self, name=None):
+        """ select next color type 
+        If `fct_index`, select color function with this index
+        """
+        if name:
+            index = [name for name,fct in self._color_fct].index(name)
+            self._current_color = index
+        else:
+            self._current_color = (self._current_color+1)%len(self._color_fct)
+            
+        name,color_fct = self._color_fct[self._current_color]
+        self.color = color_fct
+        self.show_message('color model: '+name)
+        ## return update, removed, added[, selection?]
+        ##return self.get_nodes(), [],[]#,self.selection?
+        
+    def branch_color(self, vid):
         """ return the color associated to `vid`
         
         Standard TreeEditor Theme are, either:
@@ -428,6 +470,31 @@ class TreeModel(_Model):
         
 class PASModel(TreeModel):
     """ A TreeModel which manages the Plant,Axe,Segment scales """
+    def __init__(self, presenter=None, mtg=None, position='position', radius='radius'):
+        """ create a PASModel to interact with given `mtg` 
+        
+        `mtg`: 
+            either a MTG object or a file name to load with `load_mtg`
+        `position`: 
+            indicates how is stored the position associated to segments end node
+            It can be either:
+              - the name (string) of the property storing the position as an 
+                iterable triplet (tuple, list, vector with iterable api, ...)
+              - a list of the name of the 3 properties for the x, y and z 
+                coordinates, respectively. Eg: ['XX','YY','ZZ']
+              - None to attempt automatic detection (see `select_mtg_api`)
+        `radius`:
+            name of the property storing the segments radius. If None, it tries
+            to detect it automatically (see `select_mtg_api`) and if it does not
+            find it, it create its.
+            Unfound radius are set to 1
+        """
+        TreeModel.__init__(self,presenter=presenter, mtg=mtg,
+                           position=position, radius=radius)
+        
+        # color
+        self._color_fct.append(('axe',self.axe_color))
+        self._color_fct.append(('plant',self.plant_color))
     
     def set_mtg(self,mtg,filename=None, position=None, radius=None):
         """ set the `mtg` of this PASModel """
@@ -437,21 +504,15 @@ class PASModel(TreeModel):
     # mtg accessor
     # ------------
     def get_axe(self, segment):
-        """ return the axe id which own `segment` """
+        """ return the axe id which own `segment` """    
         return self.mtg.complex(segment)
+    def get_plant(self, segment):
+        """ return the plant id which own `segment` """
+        complex = self.mtg.complex
+        return complex(complex(segment))
     
     # mtg edition
     # -----------
-    def new_vertex(self, position, radius=1):
-        """ add a new *unconnected* vertex """
-        pid = self.mtg.add_component(self.mtg.root)
-        aid = self.mtg.add_component(pid)
-        sid = self.mtg.add_component(aid)
-        self.set_position(sid, position=position)
-        self.set_radius(sid, radius=radius)
-        
-        return sid
-        
     def add_branching(self, segment, position):
         """ add a branching vertex (i.e. edge_type '+') to `segment` 
 
@@ -508,7 +569,7 @@ class PASModel(TreeModel):
         prev_parent = self.parent(segment)
         up = TreeModel.replace_parent(self,segment,new_parent, edge_type)
         
-        self._check_connection_validity(new_parent, up)
+        self._check_axe_validity(new_parent, up)
 
         # case where part of an axe has be attached as a branch to another
         # axe. The previous step find nothing but the *separeted* segments still 
@@ -527,11 +588,20 @@ class PASModel(TreeModel):
         
         return the set of updated vertices
         """
+        axe   = self.get_axe(segment)
+        plant = self.get_plant(segment)
+        
         parent = self.parent(segment)
         children = self.children(segment)
         up = TreeModel.remove_vertex(self, segment, reparent_child)
-        self._check_connection_validity(parent, up)
-        
+        self._check_axe_validity(parent, up)
+
+        # remove axe and plant if empty
+        if len(self.mtg.components(axe))==0:
+            self.mtg.remove_vertex(axe)
+        if len(self.mtg.components(plant))==0:
+            self.mtg.remove_vertex(plant)
+
         return up
         
     # private edition
@@ -549,15 +619,23 @@ class PASModel(TreeModel):
         self._change_axe(successors, new_branch)
             
     def _change_axe(self, successors, axe):
-        """ attach all sucessors to axe - blindly - """
+        """ attach all successors to axe - blindly - """
         ## how to change complex properly??!
-        mtg_axe = self.mtg._complex
-        axe_seg = self.mtg._components.setdefault(axe,[])
+        segment_axe = self.mtg._complex
+        axe_segment = self.mtg._components.setdefault(axe,[])
         for sid in successors:
-            mtg_axe[sid] = axe
-            axe_seg.append(sid)
+            segment_axe[sid] = axe
+            axe_segment.append(sid)
 
-    def _check_connection_validity(self, segment, up):
+    def _change_plant(self, axes, plant):
+        """ attach all axes to plant - blindly - """
+        axe_plant = self.mtg._complex
+        plant_axe = self.mtg._components.setdefault(plant,[])
+        for aid in axes:
+            mtg_plant[aid] = plant
+            plant_axe.append(aid)
+            
+    def _check_axe_validity(self, segment, up):
         """ check for structural validity of axe scale """
         edge = lambda vid: self.mtg.edge_type(vid)
         
@@ -576,19 +654,24 @@ class PASModel(TreeModel):
                 # branch should not have same axe as parent 
                 self._new_axe_branch(child, up)
 
-    ##todo: 1. remove empty axe/plants
-    ##      2. insert_parent
-    ##      3. remove_tree (seems to works - at least check 1)
+    def _check_plant_validity(self, segment, up):
+        """ check that all descendants of segment's axe have same plant """
+        plant = self.get_plant(segment)
+        
+        axes = []
+        map(axes.extend, (_mtgalgo.descendants(axe) for axe in self.mtg.components(plant)))
+            
+        complex = self.mtg.complex
+        self._change_plant([a for a in axes if complex(a)!=plant])
+        
     
     # appearance
     # ----------
-    def color(self, segment):
-        """ return the color associated to `segment`
-
-        PASModel colors are the axe id to which `segment` is part of
-
-        See also: TreeModel.color
-        """ 
+    def axe_color(self, segment):
+        """ return the color associated to `segment` axe """ 
         return self.get_axe(segment)
+    def plant_color(self, segment):
+        """ return the color associated to `segment` plant """ 
+        return self.get_plant(segment)
 
 
