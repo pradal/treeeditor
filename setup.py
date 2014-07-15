@@ -106,11 +106,11 @@ setup(
     # Declare scripts and wralea as entry_points (extensions) of your package 
     entry_points = { 
         #'wralea' : ['treeeditor = vplants.treeeditor_wralea' if has_project else 'treeeditor = treeeditor_wralea' ],
-        #'console_scripts': [
-        #       'fake_script = openalea.fakepackage.amodule:console_script', ],
-         'gui_scripts': ['TreeEditor = treeeditor.editor:main'],
-        #	'wralea': wralea_entry_points
+         'gui_scripts':  ['TreeEditor = treeeditor.editor:main'],
+         'oalab.applet': ['TreeEditorApp = treeeditor.plugins:TreeEditorWidgetPlugin'],
+         'oalab.lab':    ['TreeEditorLab = treeeditor.plugins:TreeEditorLabPlugin']
         },
+
     )
 
 

@@ -5,18 +5,16 @@ User interface for the edition of tree structures
 """
 # import
 # ------
-##import os
-##import math
-
 # QT, OpenGL and qglViewer
 from openalea.vpltk.qt import QtGui, QtCore # (!) needs to called before any other qt import 
 
+# plantgl, qglviewer, opengl
 from OpenGL import GL       as _gl
 import PyQGLViewer          as _qgl
 import openalea.plantgl.all as _pgl
-
 from PyQGLViewer import QGLViewer as _QGLViewer
 
+# tree editor components
 from treeeditor.mvp  import AbstractEditor as _AbstractEditor
 from treeeditor.tree import TreePresenter  as _TreePresenter
 from treeeditor.background import BackgroundPresenter as _BackgroundPresenter
@@ -24,6 +22,7 @@ from treeeditor.background import BackgroundPresenter as _BackgroundPresenter
 
 _toVec = lambda v : _qgl.Vec(*v)
 ##toV3  = lambda v : _pgl.Vector3(*v)
+
 
 # TreeEditor main class
 # ---------------------
@@ -76,7 +75,12 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
         for name,pres in presenters.iteritems():
             self.attach_viewable(name,pres)
 
-        # actions
+        # registerd file open functions
+        self.open_file_callback = {}
+        
+        # events & actions
+        self.setFocusPolicy(QtCore.Qt.StrongFocus) # keyboard & mouse focus
+        self.setAcceptDrops(True)                  # accept drop event
         ##self.add_file_action('close editor',    self.close,          keys=['Ctrl+Q'])
         self.add_view_action('refresh', self.look_at, keys=['Space'], checked=False)
 
@@ -86,7 +90,7 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
     def set_tree(self, tree):
         """ set the TreePresenter object to be edited """
         if tree is None or tree=='default':
-            tree = _TreePresenter()
+            tree = _TreePresenter(theme=self.theme)
         self.attach_viewable('tree',tree)
         self.set_edited_presenter('tree')
         if not tree.is_empty():
@@ -247,6 +251,22 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
         """ generate the view menu """
         return self._create_menu('View', self.get_view_actions())
         
+    def get_plugin_actions(self):
+        """ return TreeEditor actions for OAlab """
+        actions = []
+        
+        def add_some_action(menu, action_dicts):
+            action_dicts = filter(None, action_dicts)
+            for action in action_dicts:
+                action = self._create_action(**action)
+                actions.append((menu,action,1)) #(-pane_name-), group_name, action, btn_type)
+            
+        add_some_action('file',self.get_file_actions())
+        add_some_action('edit',self.get_edit_actions())
+        add_some_action('view',self.get_view_actions())
+        
+        return actions
+    
     def _create_menu(self, title, actions, filter_dict=None):
         """ create an QMenu for get_***_menu """
         menu = QtGui.QMenu(title, self)
@@ -259,8 +279,16 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
         
     def _create_action(self, description, function, keys=None, **kargs):
         """ create an QAction for _creat_menu """
-        dialog  = kargs.get('dialog')
-        warning = kargs.get('warning')
+        dialog   = kargs.get('dialog')
+        warning  = kargs.get('warning')
+        open_ext = kargs.get('opened_extension')
+
+        if open_ext is not None:
+            if isinstance(open_ext,basestring):
+                open_ext = [open_ext]
+            for ext in open_ext:
+                self.open_file_callback[ext] = function
+          
         if dialog=='save':
             from functools import partial
             function = partial(self.savefile_dialog, description, function, warning)
@@ -270,6 +298,7 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
             
         action = QtGui.QAction(description, self)
         action.triggered.connect(function)
+        self.addAction(action)
         
         checked = kargs.get('checked',None)
         if checked is not None:
@@ -278,6 +307,7 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
             
         if keys:
             action.setShortcuts([QtGui.QKeySequence(kseq).toString() for kseq in keys])
+            action.setShortcutContext(QtCore.Qt.WidgetWithChildrenShortcut)
             
         return action
         
@@ -337,6 +367,38 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
                 
         return _QGLViewer.contextMenuEvent(self,event)
 
+    
+    # accept drop mtg to open
+    # -----------------------
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat("text/plain"):
+            event.accept()
+            return
+            
+        event.ignore()
+
+    def dropEvent(self, event):
+        mimeData = event.mimeData()
+        if not mimeData.hasFormat("text/plain"):
+            event.ignore()
+            
+        import os
+        filename = str(mimeData.text())
+        if filename.startswith("data/'"):
+            # mimeData come from OpenAleaLab
+            from openalea.oalab.session.session import Session
+            path = Session().project.path
+            filename = filename[6:].split("'")[0]
+            filename = str(path / 'data' / filename)
+            
+        ext = os.path.splitext(filename)[-1]
+        fct = self.open_file_callback.get(ext)
+        if fct is None:
+            raise TypeError('Cannot open file with extension: ' + ext)
+        else:
+            fct(filename)
+        event.accept()
+
 
     # updating
     # --------
@@ -388,8 +450,10 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
         If `warning` is given, open first a warning dialog with given message.
         """
         import os
+        from openalea.oalab import session
         from treeeditor.io import get_shared_data
         
+        # display warning message, if required
         if hasattr(warning,'__call__'):
             warning = warning()
         if warning:                
@@ -400,9 +464,15 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
             res = msgBox.exec_()
             if res==QtGui.QMessageBox.Cancel:
                 return
-                
-        filename = QtGui.QFileDialog.getOpenFileName(None, title,
-                                                get_shared_data(),
+        
+        # select opened directory
+        if hasattr(session,'session'): # test if oalab is started
+            s = session.session.Session()
+            data_dir = str(s.project.path / 'data')
+        else:
+            data_dir = get_shared_data()
+
+        filename = QtGui.QFileDialog.getOpenFileName(None, title, data_dir,
                                                 "All Files (*.*)")#,
                                                 #QtGui.QFileDialog.DontUseNativeDialog)
         #d = QtGui.QFileDialog()
@@ -421,8 +491,10 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
         If `warning` is given, open first a warning dialog with given message.
         """
         import os
+        from openalea.oalab import session
         from treeeditor.io import get_shared_data
         
+        # print warning message, if required
         if hasattr(warning,'__call__'):
             warning = warning()
         if warning:
@@ -434,8 +506,14 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
             if res==QtGui.QMessageBox.Cancel:
                 return
                 
-        filename = QtGui.QFileDialog.getSaveFileName(self, title,
-                                                get_shared_data('data'),
+        # select directory
+        if hasattr(session,'session'): # test if oalab is started
+            s = session.session.Session()
+            data_dir = str(s.project.path / 'data')
+        else:
+            data_dir = get_shared_data()
+
+        filename = QtGui.QFileDialog.getSaveFileName(self, title, data_dir,
                                                 "All Files (*.*)")
                                                 #QtGui.QFileDialog.DontUseNativeDialog)
         if not filename:
@@ -447,6 +525,7 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
 
         
 class TreeEditor(QtGui.QMainWindow):
+    """ stand alone application """
     def __init__(self, editor=None):
         QtGui.QMainWindow.__init__(self)
                                                                                                  

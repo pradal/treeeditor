@@ -36,6 +36,7 @@ def write_mtg_file(filename, g, properties=[], nb_tab=20):
     """
     if properties == []:
         properties = [(p, 'REAL') for p in g.property_names() if p not in ['edge_type', 'index', 'label']]
+
     str = _mtg_io.write_mtg(g, properties, nb_tab=nb_tab)
     with open(filename, 'w') as f:
         f.write(str)

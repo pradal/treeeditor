@@ -293,13 +293,13 @@ class EdgesView(AbstractView):
         
     @staticmethod
     def create_edge(pos1,pos2,color, edge_id, theme):
-        line = _pgl.Polyline([_pgl_vec(pos1), _pgl_vec(pos2)],width=1)
+        line = _pgl.Polyline([_pgl_vec(pos1), _pgl_vec(pos2)],width=3)
         if color in theme.keys():
             appearance = theme[color]
         else:
             cmap = theme['colormap']
             appearance = cmap[color%len(cmap)]
-        return _pgl.Shape(geometry=line,appearance=appearance,id=edge_id)
+        return _pgl.Shape(geometry=line,appearance=appearance, id=edge_id)
 
 
 # control point callback that update models

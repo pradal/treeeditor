@@ -6,6 +6,26 @@ from openalea.mtg import MTG  as _MTG
 from treeeditor import io
 from treeeditor.mvp import Model as _Model
 
+##todo: register model classes and associated test functions
+def create_mtg_model(presenter, tree, **kargs):
+    def test_mtg(g):
+        if g is None or g.max_scale()!=3: return TreeModel
+        else:                             return PASModel
+
+
+    if isinstance(tree,basestring):
+        tree = TreeModel(presenter=presenter, mtg=tree, **kargs)
+        if test_mtg(tree.mtg) is PASModel:
+            tree = PASModel(presenter=presenter, mtg=tree.mtg, **kargs)
+        return tree
+        
+    elif isinstance(tree, TreeModel):
+        tree.set_presenter(presenter)
+        return tree
+        
+    else:
+        model = test_mtg(tree)
+        return model(presenter=presenter, mtg=tree, **kargs)
 
 class TreeModel(_Model):
     """
@@ -30,12 +50,15 @@ class TreeModel(_Model):
       - It should represent an axial tree: each segment have maximum 1 successor 
         child (edge_type='<') but any number of branch children (edge_type='+')
     """
+    open_title = 'open mtg file'
+    save_title = 'save mtg file'
+    opened_extension = ['.mtg','.bmtg']
     
     def __init__(self, presenter=None, mtg=None, position='position', radius='radius'):
         """ create a TreeModel to interact with given `mtg` 
         
         `mtg`: 
-            either a MTG object or a file name to load with `load_mtg`
+            either a MTG object or a file name to load with `load_model`
         `position`: 
             indicates how is stored the position associated to segments end node
             It can be either:
@@ -53,7 +76,7 @@ class TreeModel(_Model):
         _Model.__init__(self, presenter=presenter)
         # backup (undo) system
         self.backupmtg = []
-        self.maxbackup = 4
+        self.maxbackup = 10
 
         # color
         self._color_fct = [('branch',self.branch_color)]
@@ -63,9 +86,8 @@ class TreeModel(_Model):
         self.set_presenter(presenter)
         
         if isinstance(mtg,basestring):
-            self.load_mtg(mtg,position=position,radius=radius)
-        else:
-            self.set_mtg(mtg,None,position=position,radius=radius)
+            mtg = self.load_model(mtg)
+        self.set_mtg(mtg,None,position=position,radius=radius)
             
         
         
@@ -244,18 +266,32 @@ class TreeModel(_Model):
         The new vertex has same edge_type as `child` and `child` becomes
         the axial child (successor) of the new vertex.
         
+        if there is multiple scale, the added vertex is attached to the complex 
+        of `child` 
+        
         return 
           - the id of the created vertex
           - the set of updated vertices
         """
-        parent = self.parent(child)
-        child_edge = self.mtg.edge_type(child)
-        vertex = self.mtg.insert_parent(child, edge_type=child_edge)
+        # insert the vertex
+        mtg = self.mtg
+        parent = mtg.parent(child)
+        child_edge = mtg.edge_type(child)
+        if mtg.max_scale()>1:
+            complex_id = mtg.complex(child)
+            vertex = self.add_component(complex_id, edge_type=child_edge)
+            mtg.replace_parent(child, vertex)
+        else:
+            vertex = self.mtg.insert_parent(child)
+            mtg.add_child(parent, vertex, edge_type=child_edge) ## not done by in mtg.insert_parent
         self.set_position(vertex, position)
         
+        # select edge type
         up = set([child,vertex,parent])
-        up.update(self.replace_parent(child,  vertex, edge_type='<'))
-        up.update(self.replace_parent(vertex, parent, edge_type=child_edge))
+        if child_edge=='+':
+            edge_type = mtg.property('edge_type')
+            edge_type[child] = '<'
+            ##up.update(self.replace_parent(child,  vertex, edge_type='<'))
 
         return vertex, up
         
@@ -274,22 +310,21 @@ class TreeModel(_Model):
             raise TypeError("Invalid parent: cannot reparent a node with one of its descendants")
             
         if edge_type is None:
-            if self.successor(new_parent):
-                edge_type = '+'
-            else:
-                edge_type = '<'
+            if self.successor(new_parent): edge_type = '+'
+            else:                          edge_type = '<'
+        
+        mtg = self.mtg
         updated = [vertex, new_parent]
         
         # assert parent has no other successor
-        mtg_edge_type = self.mtg.property('edge_type')
+        mtg_edge_type = mtg.property('edge_type')
         if edge_type=='<':
-            successors = [vid for vid in self.mtg.children(new_parent) if mtg_edge_type[vid]=='<']
-            print [(vid,mtg_edge_type[vid]) for vid in self.mtg.children(new_parent)]
+            successors = [vid for vid in mtg.children(new_parent) if mtg_edge_type[vid]=='<']
             for s in successors:
                 mtg_edge_type[s] = '+'
             updated.extend(successors)
             
-        self.mtg.replace_parent(vertex, new_parent)
+        mtg.replace_parent(vertex, new_parent)
         mtg_edge_type[vertex] = edge_type
             
         return set(updated)
@@ -382,29 +417,35 @@ class TreeModel(_Model):
 
     # file IO
     # -------
-    def load_mtg(self,filename, position=None, radius=None):
+    @staticmethod
+    def load_model(filename):
         """ load mtg from `filename`, then call `set_mtg` """
         import os.path
         
         if os.path.splitext(filename)[1] == '.bmtg':
            mtg = io.readfile(filename)
         else: # .mtg
-            mtg = io.read_mtg_file(filename)
-            
-        self.set_mtg(mtg,filename, position=position,radius=radius)
-        
-    def save_mtg(self,filename):
+           mtg = io.read_mtg_file(filename)
+    
+        return mtg
+    def save_model(self,filename):
         """ Save the mtg in file `filename` """ 
-        filename = str(filename)
         import os.path,shutil
+        filename = str(filename)
+        ext = os.path.splitext(filename)[1]
+        if len(ext)==0:
+            ext = '.bmtg'
+            filename += ext
+            
         if os.path.exists(filename):
             shutil.copy(filename,filename+'~')
-        if os.path.splitext(filename)[1] == '.bmtg':
+            
+        if ext=='.bmtg':
            io.writefile(filename,self.mtg)
         else: # .mtg
             # readable mtg format from openalea.mtg module
             stdmtg, properties = self.get_standard_mtg()
-            io.write_mtg_file(filename, mtg, properties=properties)
+            io.write_mtg_file(filename, stdmtg, properties=properties)
         self.mtgfile = filename
    
     def get_standard_mtg(self):
@@ -419,9 +460,13 @@ class TreeModel(_Model):
         from copy import deepcopy
         newg = deepcopy(self.mtg)
         
+        xx = {}
+        yy = {}
+        zz = {}
+        r  = {}
         for vid in self.get_nodes():
-            xx[i],yy[i],zz[i] = self.get_position(vid)
-            r[i]  = self.get_radius(vid)
+            xx[vid],yy[vid],zz[vid] = self.get_position(vid)
+            r[vid]  = self.get_radius(vid)
         
         newg.add_property('XX')
         newg.add_property('YY')
@@ -474,7 +519,7 @@ class PASModel(TreeModel):
         """ create a PASModel to interact with given `mtg` 
         
         `mtg`: 
-            either a MTG object or a file name to load with `load_mtg`
+            either a MTG object or a file name to load with `load_model`
         `position`: 
             indicates how is stored the position associated to segments end node
             It can be either:
@@ -528,31 +573,6 @@ class PASModel(TreeModel):
         self.set_position(child_seg,position)
         
         return child_seg, set([child_seg, segment])
-    
-    def insert_parent(self, child, position):
-        """
-        Insert a new vertex as parent of `child`
-        
-        The new vertex is part of the same axe (and edge_type) as 'child'
-        and `child` becomes its successor.
-        
-        return 
-          - the id of the created vertex
-          - the set of updated vertices
-        """
-        vertex, up = TreeModel.insert_parent(self, child, position)
-        
-        ##parent = self.parent(child)
-        ##vertex = self.mtg.insert_parent(child)
-        ##self.set_position(vertex, position)
-        ##
-        ##up = set([child,vertex,parent])
-        ##child_edge = self.mtg.edge_type(child)
-        ##up.update(self.replace_parent(child,  vertex, edge_type='<')[1])
-        ##up.update(self.replace_parent(vertex, parent, edge_type=child_edge)[1])
-
-        return vertex, up
-        
         
     def replace_parent(self, segment, new_parent, edge_type=None):
         """ set the parent of `segment` by `new_parent` 
@@ -571,12 +591,11 @@ class PASModel(TreeModel):
         
         self._check_axe_validity(new_parent, up)
 
-        # case where part of an axe has be attached as a branch to another
+        # case where part of an axe has been attached as a branch to another
         # axe. The previous step find nothing but the *separeted* segments still 
         # have the same axe complex as its previous ancestor segments
         if prev_parent!=new_parent and self.get_axe(segment)==self.get_axe(prev_parent):
             self._new_axe_branch(segment, up)
-            
 
         return up
         
@@ -619,21 +638,16 @@ class PASModel(TreeModel):
         self._change_axe(successors, new_branch)
             
     def _change_axe(self, successors, axe):
-        """ attach all successors to axe - blindly - """
-        ## how to change complex properly??!
-        segment_axe = self.mtg._complex
-        axe_segment = self.mtg._components.setdefault(axe,[])
+        """ attach all successors to axe """
+        g = self.mtg
         for sid in successors:
-            segment_axe[sid] = axe
-            axe_segment.append(sid)
+            g.add_component(axe,sid)
 
     def _change_plant(self, axes, plant):
         """ attach all axes to plant - blindly - """
-        axe_plant = self.mtg._complex
-        plant_axe = self.mtg._components.setdefault(plant,[])
+        g = self.mtg
         for aid in axes:
-            mtg_plant[aid] = plant
-            plant_axe.append(aid)
+            g.add_component(plant,aid)
             
     def _check_axe_validity(self, segment, up):
         """ check for structural validity of axe scale """

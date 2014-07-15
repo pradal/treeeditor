@@ -22,13 +22,22 @@ MAGENTA = _Material((220,  0,100))
 
 
 THEME = {'point_diameter': 5,
-         'point_slices': 8,
-         'point_stacks': 8,
+         'point_slices': 4,
+         'point_stacks': 4,
          'point_color':    LGREEN,
          'pointset_color': BROWN,
          'background':     LGRAY,
          'default':        BLACK,
          'highlight':      ORANGE,
-         'highlight2':     RED,
-         'colormap':      [BLACK,GREEN,BLUE,YELLOW,PURPLE,CYAN,MAGENTA],
-        }     
+         'highlight2':     WHITE,
+         'colormap':      [BLACK,RED,GREEN,BLUE,YELLOW,PURPLE,CYAN,MAGENTA],
+         
+         'key_open': 'Ctrl+O',
+         'key_save': 'Ctrl+S',
+        }
+        
+# theme for OpenAleaLab plugin
+OATHEME = THEME.copy()
+OATHEME['key_open'] = 'Ctrl+Shift+O'
+OATHEME['key_save'] = 'Ctrl+Shift+S'
+

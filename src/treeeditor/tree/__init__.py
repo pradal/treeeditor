@@ -9,6 +9,7 @@ import openalea.plantgl.all as _pgl
 
 from treeeditor.mvp        import Presenter         as _Presenter        
 from treeeditor.tree.model import TreeModel         as _TreeModel
+from treeeditor.tree.model import create_mtg_model  as _create_model
 from treeeditor.tree.view  import ControlPointsView as _ControlPointsView
 from treeeditor.tree.view  import EdgesView         as _EdgesView
 
@@ -21,6 +22,7 @@ class TreePresenter(_Presenter):
     Default Presenter class managing (mtg) tree structure
     """
     FREE,EDITION,REPARENT,SKETCH_AXE = range(4)
+    create_model = staticmethod(_create_model)
     
     def __init__(self, tree=None, theme=None, editor=None):
         """ Create the TreePresenter object
@@ -51,16 +53,19 @@ class TreePresenter(_Presenter):
         self.selection = None  # id of the selected control point (if any)
 
         # register actions
-        self.add_file_action('Open mtg file',self.set_model, dialog='open', keys= ['Ctrl+O'],
-                             warning=lambda : False if self.is_empty() else 'Current tree will be lost. Continue?')
-        self.add_file_action('Save mtg file',self.save_model, dialog='save', keys= ['Ctrl+S'])
+        print 'save key:', self.theme['key_save']
+        print 'open key:', self.theme['key_open']
+        self.add_file_action(self.model.open_title,self.set_model, dialog='open', keys= [self.theme['key_open']],
+                             warning=lambda : False if self.is_empty() else 'Current tree will be lost. Continue?',
+                             opened_extension=self.model.opened_extension)
+        self.add_file_action(self.model.save_title,self.save_model, dialog='save', keys= [self.theme['key_save']])
 
         self.add_edit_action('undo',            self.undo,         keys=['Ctrl+Z'], isenable=self.has_undo)
         
         self.add_edit_action('add child',       self.add_child,    keys=['A'],      isenable=self.get_selection)
         self.add_edit_action('set successor',   self.set_axial,    keys=['<'],      isenable=self.get_selection)
         self.add_edit_action('reparent',        self.reparent_mode,keys=['P'],      isenable=self.get_selection)
-        self.add_edit_action('new node on edge',self.split_edge,   keys=['E'],      isenable=self.get_selection)
+        self.add_edit_action('new node on edge',self.insert_parent,keys=['E'],      isenable=self.get_selection)
         self.add_edit_action('sketch axe',      self.sketch_axe,   keys=['S'],      isenable=self.get_selection)
         
         self.add_edit_action('delete node',     self.delete_selection, keys=['Del','Backspace'], isenable=self.get_selection)
@@ -97,14 +102,9 @@ class TreePresenter(_Presenter):
         self.selection = None
         
         if not isinstance(tree,_TreeModel):
-            if hasattr(self,'model'): 
-                model_class = self.model.__class__
-            else: 
-                model_class = _TreeModel
-                
             if isinstance(tree,bool): # for call by Qt
                 tree = None
-            self.model = model_class(mtg=tree, presenter=self)
+            self.model = self.create_model(tree=tree, presenter=self)
         else:
             tree.set_presenter(self)
             self.model = tree
@@ -112,7 +112,7 @@ class TreePresenter(_Presenter):
         self.reset_views(update_camera=True)
         
     def save_model(self, filename):
-        self.model.save_mtg(filename)
+        self.model.save_model(filename)
 
     def is_empty(self):
         """ return True if tree model is emtpy """
@@ -178,10 +178,10 @@ class TreePresenter(_Presenter):
         ##    self._edges_to_update.symmetric_difference_update(self._deleted_view_node)
             
         if len(self._added_view_node):
-            self.update_views(self._added_view_node)
             for new_node in self._added_view_node:
                 self.ctrl_points.add_point(new_node,self.model,self.update_views)
                 self.edges.add_edge(new_node,self.model)
+            self.update_views(self._added_view_node)
         
         for node_id in filter(None,self._point_to_update):
             self.ctrl_points.update(node_id)
@@ -273,8 +273,8 @@ class TreePresenter(_Presenter):
             self.ctrl_points.update(self.selection.id)
             
         # select given point
-        self.apply_view_update()
         if point is None and model_id is not None:
+            self.apply_view_update()
             point = self.ctrl_points.get_point(model_id)
             
         self.selection = point
@@ -427,7 +427,7 @@ class TreePresenter(_Presenter):
         self.update_views(up)
         self.show_message("set "+str(node_id)+" as its parent axial child")
                 
-    def split_edge(self):
+    def insert_parent(self):
         """ add vertex between selected vertex and its parent """
         if not self.get_selection(): return
         self.push_backup()
@@ -444,8 +444,10 @@ class TreePresenter(_Presenter):
         self.add_view_node(new_id)
         self.update_views(up)
             
+        print 'added:', new_id, 'up:', up
+        print 'node for update:', self._point_to_update, self._added_view_node, self._deleted_view_node
         # update self
-        self.set_selection(self.ctrl_points.get_point(new_id))
+        self.set_selection(model_id=new_id)
         
     def delete_subtree(self):
         """ Delete selected node and all nodes blow (i.e. the subtree)"""

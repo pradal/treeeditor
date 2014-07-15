@@ -79,7 +79,7 @@ class AbstractMVP(object):
         """
         return self._view_actions
         
-    def add_file_action(self, description, function, dialog=None, keys=None, warning=None):
+    def add_file_action(self, description, function, dialog=None, keys=None, warning=None, **kargs):
         """ register an action to be returned by `get_file_action`
         
         description: string to put in generated menu
@@ -88,10 +88,10 @@ class AbstractMVP(object):
         keys (optional): a list of keyboard access. Ex: ['Ctrl+S']
         warning (optional): a function that return a warning message or None
         """
-        action = dict(description=description, function=function, dialog=dialog, keys=keys, warning=warning)
+        action = dict(description=description, function=function, dialog=dialog, keys=keys, warning=warning, **kargs)
         self._file_actions.append(action)
         
-    def add_edit_action(self, description, function, keys=None, isenable=None):
+    def add_edit_action(self, description, function, keys=None, isenable=None, **kargs):
         """ register an action to be returned by `get_edit_action`
         
         description: string to put in generated menu
@@ -100,10 +100,10 @@ class AbstractMVP(object):
         isenable (optional): a function that check if action is enable
         """
         action = dict(description=description, function=function, 
-                                     keys=keys, isenable=isenable)
+                                     keys=keys, isenable=isenable, **kargs)
         self._edit_actions.append(action)
         
-    def add_view_action(self, description, function, keys=None, isenable=None, checked=None):
+    def add_view_action(self, description, function, keys=None, isenable=None, checked=None, **kargs):
         """ register an action to be returned by `get_view_action`
         
         description: string to put in generated menu
@@ -113,7 +113,7 @@ class AbstractMVP(object):
         checked: None:nothing, True/False: checkable action initialized as given
         """
         action = dict(description=description, function=function, 
-                                     keys=keys, checked=checked, isenable=isenable)
+                                     keys=keys, checked=checked, isenable=isenable, **kargs)
         self._view_actions.append(action)
         
         

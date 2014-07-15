@@ -1,4 +1,23 @@
 
+def test_model_autoselection():
+    from treeeditor.tree.model import create_mtg_model
+    from treeeditor.tree.model import TreeModel
+    from treeeditor.tree.model import PASModel
+    from openalea.mtg import MTG
+    
+    m = create_mtg_model(tree=None, presenter=None)
+    assert m.__class__==TreeModel
+    
+    g = MTG()
+    m = create_mtg_model(tree=m, presenter=None)
+    assert m.__class__==TreeModel
+
+    m = PASModel()
+    m.new_vertex(position=(0,0,0))
+    m = create_mtg_model(tree=m.mtg, presenter=None)
+    assert m.__class__==PASModel
+    
+
 def test_PASModel_add_branching():
     from treeeditor.tree.model import PASModel
     m = PASModel()

@@ -31,11 +31,13 @@ class BackgroundPresenter(_Presenter):
         self.points = None
         
         self.add_file_action('Load image background',self.set_image, 
-                             dialog='open', keys=['Ctrl+I'])
+                             dialog='open', keys=['Ctrl+I'], 
+                             opened_extension=['.png','.jpg','.jpeg','.tif','.tiff','.bmp'])
         self.add_file_action('Load pointset background',self.set_points, 
-                             dialog='open', keys=['Ctrl+P'])
+                             dialog='open', keys=['Ctrl+P'],
+                             opened_extension=['.bgeom'])
 
-    def set_image(self, image):      
+    def set_image(self, image):
         """ set this BackgroundPresenter image View
         
         image can be a View object or a valid input of the ImageView constructor
