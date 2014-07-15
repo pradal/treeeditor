@@ -26,9 +26,9 @@ class AbstractView(_View):
         self.clear()
                 
     def clear(self):
-        self.content = None      # main content as a dict (tree-id, plantgl objects) 
-        self.scene = None        # graphical representation as a PlantGL.Scene object 
-        self.scene_index = {}    # map key of `content`  to  index in `scene`
+        self.content = {}         # main content as a dict (tree-id, plantgl objects) 
+        self.scene = _pgl.Scene() # graphical representation as a PlantGL.Scene object 
+        self.scene_index = {}     # map key of `content`  to  index in `scene`
 
         
 
