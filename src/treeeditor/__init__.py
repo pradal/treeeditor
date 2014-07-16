@@ -22,8 +22,8 @@ MAGENTA = _Material((220,  0,100))
 
 
 THEME = {'point_diameter': 5,
-         'point_slices': 4,
-         'point_stacks': 4,
+         'point_slices': 8,
+         'point_stacks': 8,
          'point_color':    LGREEN,
          'pointset_color': BROWN,
          'background':     LGRAY,
@@ -40,4 +40,5 @@ THEME = {'point_diameter': 5,
 OATHEME = THEME.copy()
 OATHEME['key_open'] = 'Ctrl+Shift+O'
 OATHEME['key_save'] = 'Ctrl+Shift+S'
+
 

@@ -87,9 +87,8 @@ class TreePresenter(_Presenter):
                                  checked=self.edges.display,
                                  keys=['Shift+E'])
 
-        self.add_view_action(description='next color',
-                                 function=self.next_color,
-                                 keys=['Shift+C'])
+        self.add_view_action(description='next color', function=self.next_color,  keys=['Shift+C'])
+        self.add_view_action(description='refresh view', function=self.reset_views, keys=['Ctrl+Shift+R'])
 
     def set_model(self, tree=None):
         """ set the tree model managed by this TreePresenter 

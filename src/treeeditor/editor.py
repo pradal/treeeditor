@@ -24,6 +24,14 @@ _toVec = lambda v : _qgl.Vec(*v)
 ##toV3  = lambda v : _pgl.Vector3(*v)
 
 
+## patch for pgl.BoundingBox.__add__ bug
+def bb_add(b1,b2):
+    llc = map(min,zip(list(b1.lowerLeftCorner),list(b2.lowerLeftCorner)))
+    urc = map(max,zip(list(b1.upperRightCorner),list(b2.upperRightCorner)))
+    return _pgl.BoundingBox(llc,urc)
+_pgl.BoundingBox.__add__ = bb_add
+
+
 # TreeEditor main class
 # ---------------------
 class TreeEditorWidget(_QGLViewer, _AbstractEditor):

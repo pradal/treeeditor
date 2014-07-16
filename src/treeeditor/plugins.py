@@ -45,6 +45,7 @@ class TreeEditorLabPlugin(object):
         'HistoryWidget',
         'Viewer3D',
         'World',
+        'Plot2d',
         ]
 
 

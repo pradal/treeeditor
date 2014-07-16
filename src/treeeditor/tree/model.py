@@ -276,14 +276,19 @@ class TreeModel(_Model):
         # insert the vertex
         mtg = self.mtg
         parent = mtg.parent(child)
+        if parent is None:
+            self.show_message('Only vertex with parent can insert a node')
+            return child, []
+            
         child_edge = mtg.edge_type(child)
-        if mtg.max_scale()>1:
+        if mtg.max_scale()>1 and mtg.complex(child)!=mtg.complex(parent):
             complex_id = mtg.complex(child)
-            vertex = self.add_component(complex_id, edge_type=child_edge)
-            mtg.replace_parent(child, vertex)
+            vertex = mtg.add_component(complex_id, edge_type=child_edge)
+            mtg.replace_parent(child, vertex, edge_type='<')
+            mtg.replace_parent(vertex, parent)
         else:
             vertex = self.mtg.insert_parent(child)
-            mtg.add_child(parent, vertex, edge_type=child_edge) ## not done by in mtg.insert_parent
+            #mtg.add_child(parent, vertex, edge_type=child_edge) ## not done by in mtg.insert_parent
         self.set_position(vertex, position)
         
         # select edge type
