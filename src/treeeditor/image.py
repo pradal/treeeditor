@@ -60,8 +60,16 @@ class ImageView(_View):
         self.tex_height = 1<<hpo2
         self.tex_width  = 1<<wpo2
         
-        po2_image = _np.empty((self.tex_height,self.tex_width,np_image.shape[2]),dtype='uint8')
-        po2_image[map(slice,np_image.shape)] = np_image
+        if len(np_image.shape)==3:
+            # RGB
+            po2_image = _np.empty((self.tex_height,self.tex_width,np_image.shape[2]),dtype='uint8')
+            po2_image[map(slice,np_image.shape)] = np_image
+            color_flag = _gl.GL_RGB
+        else:
+            po2_image = _np.empty((self.tex_height,self.tex_width),dtype='uint8')
+            po2_image[map(slice,np_image.shape)] = np_image
+            color_flag = _gl.GL_LUMINANCE
+            
         
         self.tex_hratio = np_image.shape[0]/float(self.tex_height)
         self.tex_wratio = np_image.shape[1]/float(self.tex_width)
@@ -78,7 +86,7 @@ class ImageView(_View):
         _gl.glTexParameterf(_gl.GL_TEXTURE_2D, _gl.GL_TEXTURE_MIN_FILTER, _gl.GL_LINEAR)
         _gl.glTexImage2D(_gl.GL_TEXTURE_2D, 0, _gl.GL_RGB, 
                          self.tex_width, self.tex_height, 
-                         0, _gl.GL_RGB, _gl.GL_UNSIGNED_BYTE, 
+                         0, color_flag, _gl.GL_UNSIGNED_BYTE, 
                          po2_image)
         
         self.update_boundingbox()
