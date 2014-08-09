@@ -1,5 +1,137 @@
 """
 Definition of Model-View-Presenter classes used in the TreeEditor package
+
+The MVP structure
+-----------------
+We use a *lightly constrained* **MVP** architecture:
+
+Model (M) 
+    Models are used to represent data that can be edited. Models have no 
+    special content, apart that they are `AbstractMVP` (see classes below)
+   
+Views (V)
+    They represent content that are displayed. They can be a graphical 
+    representation of a Model, or not.
+    
+Presenters (P)
+    The Presenter can be used in two ways:
+     - It can be a container of several Views and other sub-presenters. Its role
+       is to be an intermediate node a the components tree of viewables.
+     - It can be the presenter in a Model-View(s)-Presenter triplets. This is
+       the MVP pattern where the presenter manages the communication with the 
+       model, and with one or more views. In this pattern, model and views don't
+       communicate with one-another directly.
+    
+Editor
+    It is the top Presenter which also does the interaction with PLantGL 
+    and QGL for graphical update and dispatching user controls.
+
+classes
+-------
+
+AbstractMVP
+    Base abstract class of all MVPs. It provides references to the parent 
+    container (its `presenter`). This implements the upward communication in the
+    MVP hierarchy. 
+    It also manage the action registering.
+
+Model
+    Simply an AbstractMVP. Maybe it will later provide some standard interfaces 
+    for model edition and updates.
+
+AbstractViewable
+    Abstract class parent of View and Presenter, which can both be displayed.
+    It defines the interface of object for display: bounding box, draw, ...
+
+View
+    Implementation of AbstractViewable for managing a PlantGL Scene.
+
+Presenter
+    It manages a list AbstractViewable (View and sub-presenters) and all 
+    downward communication (container-to-component). It should be used as base
+    class to implement specific Model-View-Presenter block.
+    Typical subclass is `treeeditor.tree.TreePresenter`
+
+AbstractEditor
+    Definition of a part of the Editor API. Mainly, it is a Presenter that keep
+    a reference to a "currently edited" sub-presenter.
+
+
+Theme
+-----
+
+All components of the TreeEditor hierarchy share a `theme` dictionary. A default
+theme is defined at the TreeEditor root modules. It stores default parameter 
+values that are used, and shared, by all components.
+
+The theme dict used by a container object is always passed to sub-components.
+
+
+Bounding box
+------------
+Views and Presenters implements the (AbstractViewable) bounding box API. The 
+implementation is made to be *lazy*: it does the computation only when the a
+value is requested. 
+In practice this means that:
+ - views call `update_boundingbox` when they have changed. This flags them and 
+   all their containers (parent, grandparent, etc... iteratively). 
+ - Then when requested by a call to `get_boundingbox`, `_compute_boundingbox`
+   is called on all flagged components, only.
+
+update_boundingbox
+    flag an object, and its containers, as having an obsolete bounding box.
+    
+get_boundingbox
+    Return the already computed boundingbox, and recompute it if it is flagged 
+    as obsolete
+    
+_compute_boundingbox
+    Private function to compute the bounding box. It is the method that should 
+    be implemented according to the type of viewable: 
+      - Views compute the bounding box of their PlantGL `scene`, and
+      - Presenter compute the union of the viewable objects it contains.
+    
+    Note that this method can also be used to set the bounding box.
+
+
+Actions
+-------
+Any components can define actions, using the `add_***_actions` methods. The list
+of declared actions can be obatined using the `get_***_actions` methods. Leaves
+components (views and models) will return their own actions, and presenters
+return their as well as those of their components.
+
+An action is represented by a dictionary. They are stored in lists that can be
+seen as menus. Such list can also contain `None` which are meant to represent 
+separation bars.
+
+At minima, action dictionaries should have a 'description' and a 'function' 
+items that states, what they do, and which function to call when triggered, 
+respectively. Other items can be added, to provide additional functionality:
+ - keys: 
+     A list of shortcut keys, such as ['Ctrl+A','Shift+Space']
+ - isenable: 
+     If given, the action represent a check button, and its value indicates in
+     which state their are initiated (True for checked or False otherwise)
+ - dialog:
+     For file action that required a user interface to select a file. The value
+     can be 'open' or 'save. Then a (open of save) file selection user dialog is
+     opened and it is the user selected file that is passed to the action 
+     'function'
+ - warning:
+     For used with `dialog`: if given, first ask the
+
+Possible improvements: 
+ * use a centralized system (instead of hierarchical):
+    - central system is initiated by editor
+       > add_***_action goes through self.presenter()
+    - components register actions
+    - they can be updated, w.r.t to uid
+    . still need presenter to list their own actions?
+    . actions should still be stored hierarchically or by components
+       > all actions of 1 component can be disabled, ...
+ * add 'id' to action dict
+ * add 'isenable' callback to action dict
 """
 
 class AbstractMVP(object):

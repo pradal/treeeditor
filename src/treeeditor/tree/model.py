@@ -16,7 +16,7 @@ def create_mtg_model(presenter, tree, **kargs):
     if isinstance(tree,basestring):
         tree = TreeModel(presenter=presenter, mtg=tree, **kargs)
         if test_mtg(tree.mtg) is PASModel:
-            tree = PASModel(presenter=presenter, mtg=tree.mtg, **kargs)
+            tree = PASModel(presenter=presenter, mtg=tree.mtg, **kargs) ## tree.__class__ = PASModel?
         return tree
         
     elif isinstance(tree, TreeModel):
@@ -50,8 +50,9 @@ class TreeModel(_Model):
       - It should represent an axial tree: each segment have maximum 1 successor 
         child (edge_type='<') but any number of branch children (edge_type='+')
     """
-    open_title = 'open mtg file'
-    save_title = 'save mtg file'
+    open_title   = 'open mtg file'
+    save_title   = 'save mtg file'
+    saveas_title = 'save mtg file as'
     opened_extension = ['.mtg','.bmtg']
     
     def __init__(self, presenter=None, mtg=None, position='position', radius='radius'):
@@ -86,8 +87,11 @@ class TreeModel(_Model):
         self.set_presenter(presenter)
         
         if isinstance(mtg,basestring):
-            mtg = self.load_model(mtg)
-        self.set_mtg(mtg,None,position=position,radius=radius)
+            filename = mtg
+            mtg = self.load_model(filename)
+        else:
+            filename = None
+        self.set_mtg(mtg,filename,position=position,radius=radius)
             
         
         
@@ -431,26 +435,41 @@ class TreeModel(_Model):
            mtg = io.readfile(filename)
         else: # .mtg
            mtg = io.read_mtg_file(filename)
-    
         return mtg
-    def save_model(self,filename):
-        """ Save the mtg in file `filename` """ 
+        
+    def save_model_assert_filename(self, filename, default_ext=None):
         import os.path,shutil
+        
+        # test if filename is provided
+        if filename is None or filename is False:
+            filename = getattr(self,'mtgfile',None)
+        if filename is None:
+            raise TypeError("No file registered: use 'save as' first") 
         filename = str(filename)
+        
+        # test extension
         ext = os.path.splitext(filename)[1]
-        if len(ext)==0:
-            ext = '.bmtg'
+        if default_ext and len(ext)==0:
+            ext = default_ext
             filename += ext
             
+        # save a copy, in case the save fails
         if os.path.exists(filename):
             shutil.copy(filename,filename+'~')
             
+        return filename, ext
+        
+    def save_model(self,filename=None):
+        """ Save the mtg in file `filename` """ 
+        filename,ext = self.save_model_assert_filename(filename, '.bmtg')
+        
         if ext=='.bmtg':
            io.writefile(filename,self.mtg)
         else: # .mtg
             # readable mtg format from openalea.mtg module
             stdmtg, properties = self.get_standard_mtg()
             io.write_mtg_file(filename, stdmtg, properties=properties)
+            
         self.mtgfile = filename
    
     def get_standard_mtg(self):
@@ -627,6 +646,28 @@ class PASModel(TreeModel):
             self.mtg.remove_vertex(plant)
 
         return up
+        
+    def remove_tree(self, segment):
+        """ remove the subtree starting at `segment` """
+        axe   = self.get_axe(segment)
+        plant = self.get_plant(segment)
+        
+        up = TreeModel.remove_tree(self, segment)
+        
+        # remove empty axes
+        if len(self.mtg.components(axe))==0:
+            self.mtg.remove_tree(axe)
+            
+            # remove plant if empty
+            if len(self.mtg.components(plant))==0:
+                self.mtg.remove_tree(plant)
+        else:
+            for a in self.mtg.children(axe):
+                self.mtg.remove_tree(axe)
+            
+        return up
+        
+        
         
     # private edition
     # ---------------

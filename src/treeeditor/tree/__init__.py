@@ -53,12 +53,11 @@ class TreePresenter(_Presenter):
         self.selection = None  # id of the selected control point (if any)
 
         # register actions
-        print 'save key:', self.theme['key_save']
-        print 'open key:', self.theme['key_open']
         self.add_file_action(self.model.open_title,self.set_model, dialog='open', keys= [self.theme['key_open']],
                              warning=lambda : False if self.is_empty() else 'Current tree will be lost. Continue?',
                              opened_extension=self.model.opened_extension)
-        self.add_file_action(self.model.save_title,self.save_model, dialog='save', keys= [self.theme['key_save']])
+        self.add_file_action(self.model.save_title,  self.save_model, dialog='save', keys= [self.theme['key_saveas']])
+        self.add_file_action(self.model.saveas_title,self.save_model,                keys= [self.theme['key_save']])
 
         self.add_edit_action('undo',            self.undo,         keys=['Ctrl+Z'], isenable=self.has_undo)
         
@@ -139,8 +138,8 @@ class TreePresenter(_Presenter):
                 
     def reset_views(self, update_camera=False):
         """ Reset all views from model """
-        ##self.ctrl_points.clear()
-        ##self.edges.clear()
+        self.ctrl_points.clear()
+        self.edges.clear()
         node_number = len(self.model.get_nodes())
         if node_number:
             self.ctrl_points.create(self.model,self.update_views)
@@ -246,7 +245,7 @@ class TreePresenter(_Presenter):
             ctrl_point = self.get_ctrl_point_at(position, camera)
             if ctrl_point:
                 self.set_selection(ctrl_point)
-                return self.get_edit_actions()
+            return self.get_edit_actions()
         
         return None
     # edition mode and selection

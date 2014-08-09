@@ -10,9 +10,8 @@ class TreeEditorWidgetPlugin(object):
         """ Create widget """
         
         # widget
-        import treeeditor
         from treeeditor.editor import TreeEditorWidget
-        self._applet = TreeEditorWidget(theme=treeeditor.OATHEME)
+        self._applet = TreeEditorWidget()
         mainwindow.add_applet(self._applet, self.alias, area='outputs')
 
         # actions

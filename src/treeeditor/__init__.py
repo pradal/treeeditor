@@ -1,5 +1,11 @@
 """
-Root of the TreeEditor package
+The TreeEditor package implement as graphical user interface to edit tree 
+structures, represented as MTG objects.
+
+
+See the `treeeditor.mvp` module for a description of the structure pattern 
+used in the TreeEditor package
+
 """
 from openalea.plantgl.scenegraph import Material as _Material
 
@@ -21,7 +27,7 @@ PURPLE  = _Material((150,  0,255))
 MAGENTA = _Material((220,  0,100))
 
 
-THEME = {'point_diameter': 5,
+THEME = {'point_diameter': 30,
          'point_slices': 8,
          'point_stacks': 8,
          'point_color':    LGREEN,
@@ -32,13 +38,9 @@ THEME = {'point_diameter': 5,
          'highlight2':     WHITE,
          'colormap':      [BLACK,RED,GREEN,BLUE,YELLOW,PURPLE,CYAN,MAGENTA],
          
-         'key_open': 'Ctrl+O',
-         'key_save': 'Ctrl+S',
+         'key_open':   'Ctrl+O',
+         'key_save':   'Ctrl+S',
+         'key_saveas': 'Ctrl+Shift+S',
         }
-        
-# theme for OpenAleaLab plugin
-OATHEME = THEME.copy()
-OATHEME['key_open'] = 'Ctrl+Shift+O'
-OATHEME['key_save'] = 'Ctrl+Shift+S'
 
 

@@ -47,6 +47,8 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
         if parent: _QGLViewer.__init__(self,parent=None)
         else:      _QGLViewer.__init__(self)
                   
+        if theme is None:
+            from . import THEME as theme
         _AbstractEditor.__init__(self,theme=theme)
                   
         # defaults
@@ -83,8 +85,9 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
         for name,pres in presenters.iteritems():
             self.attach_viewable(name,pres)
 
-        # registerd file open functions
-        self.open_file_callback = {}
+        # register actions
+        self._registered_action = {}
+        self.open_file_callback = {}  # file open functions w.r.t file extension
         
         # events & actions
         self.setFocusPolicy(QtCore.Qt.StrongFocus) # keyboard & mouse focus
@@ -135,6 +138,15 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
     # ------
     def init(self):
         """ initialize opengl environement """
+        ##_gl.glEnable(_gl.GL_LIGHTING)
+        ##_gl.glEnable(_gl.GL_LIGHT0)
+        ##_gl.glEnable(_gl.GL_DEPTH_TEST)
+        ##_gl.glLightfv(_gl.GL_LIGHT0,_gl.GL_DIFFUSE,[1,3,2,1])
+        ##_gl.glLightf(_gl.GL_LIGHT0,_gl.GL_CONSTANT_ATTENUATION,.0)
+        ##_gl.glLightf(_gl.GL_LIGHT0,_gl.GL_LINEAR_ATTENUATION,.0)
+        ##_gl.glLightf(_gl.GL_LIGHT0,_gl.GL_QUADRATIC_ATTENUATION,.0)
+        _gl.glLightfv(_gl.GL_LIGHT0,_gl.GL_AMBIENT, [0.7,0.7,0.7,1])
+
         self.set_mode(self.Camera)
         self.set_camera('3D')
         
@@ -149,9 +161,9 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
         # if camera mode: mouse event redirected to camera motion, and ctrl+mouse to nothing
         # otherwise, it's this opposite
         cam_mode = mode==self.Camera
-        self.setMouseBinding(Qt.LeftButton,          QGL.CAMERA, QGL.TRANSLATE if cam_mode else QGL.NO_MOUSE_ACTION)
-        self.setMouseBinding(Qt.RightButton,         QGL.CAMERA, QGL.ROTATE    if cam_mode else QGL.NO_MOUSE_ACTION)
-        self.setMouseBinding(Qt.MidButton,           QGL.CAMERA, QGL.ZOOM      if cam_mode else QGL.NO_MOUSE_ACTION)
+        self.setMouseBinding(Qt.LeftButton,         QGL.CAMERA, QGL.TRANSLATE if cam_mode else QGL.NO_MOUSE_ACTION)
+        self.setMouseBinding(Qt.RightButton,        QGL.CAMERA, QGL.ROTATE    if cam_mode else QGL.NO_MOUSE_ACTION)
+        self.setMouseBinding(Qt.MidButton,          QGL.CAMERA, QGL.ZOOM      if cam_mode else QGL.NO_MOUSE_ACTION)
                                         
         self.setMouseBinding(Qt.LeftButton +Qt.ALT, QGL.CAMERA, QGL.NO_MOUSE_ACTION if cam_mode else QGL.TRANSLATE)
         self.setMouseBinding(Qt.RightButton+Qt.ALT, QGL.CAMERA, QGL.NO_MOUSE_ACTION if cam_mode else QGL.ROTATE)
@@ -266,7 +278,7 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
         def add_some_action(menu, action_dicts):
             action_dicts = filter(None, action_dicts)
             for action in action_dicts:
-                action = self._create_action(**action)
+                action = self._get_action(**action)
                 actions.append((menu,action,1)) #(-pane_name-), group_name, action, btn_type)
             
         add_some_action('file',self.get_file_actions())
@@ -280,44 +292,51 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
         menu = QtGui.QMenu(title, self)
         for action in actions:
             if action is None: menu.addSeparator()
-            else:              menu.addAction(self._create_action(**action))
+            else:              menu.addAction(self._get_action(**action))
         menu.addSeparator()
         
         return menu
         
-    def _create_action(self, description, function, keys=None, **kargs):
-        """ create an QAction for _creat_menu """
-        dialog   = kargs.get('dialog')
-        warning  = kargs.get('warning')
-        open_ext = kargs.get('opened_extension')
-
-        if open_ext is not None:
-            if isinstance(open_ext,basestring):
-                open_ext = [open_ext]
-            for ext in open_ext:
-                self.open_file_callback[ext] = function
-          
-        if dialog=='save':
-            from functools import partial
-            function = partial(self.savefile_dialog, description, function, warning)
-        elif dialog=='open':
-            from functools import partial
-            function = partial(self.openfile_dialog, description, function, warning)
-            
-        action = QtGui.QAction(description, self)
-        action.triggered.connect(function)
-        self.addAction(action)
+    def _get_action(self, description, function, keys=None, **kargs):
+        """ get the registered QAction, and create if first registered """
+        registered_key = (function,None if keys is None else tuple(keys))
         
-        checked = kargs.get('checked',None)
-        if checked is not None:
-            action.setCheckable(True)
-            action.setChecked(checked)
+        if registered_key in self._registered_action:
+            return self._registered_action[registered_key]
             
-        if keys:
-            action.setShortcuts([QtGui.QKeySequence(kseq).toString() for kseq in keys])
-            action.setShortcutContext(QtCore.Qt.WidgetWithChildrenShortcut)
+        else:
+            dialog   = kargs.get('dialog')
+            warning  = kargs.get('warning')
+            open_ext = kargs.get('opened_extension')
+    
+            if open_ext is not None:
+                if isinstance(open_ext,basestring):
+                    open_ext = [open_ext]
+                for ext in open_ext:
+                    self.open_file_callback[ext] = function
+              
+            if dialog=='save':
+                from functools import partial
+                function = partial(self.savefile_dialog, description, function, warning)
+            elif dialog=='open':
+                from functools import partial
+                function = partial(self.openfile_dialog, description, function, warning)
+                
+            action = QtGui.QAction(description, self)
+            action.triggered.connect(function)
+            self.addAction(action)
             
-        return action
+            checked = kargs.get('checked',None)
+            if checked is not None:
+                action.setCheckable(True)
+                action.setChecked(checked)
+                
+            if keys:
+                action.setShortcuts([QtGui.QKeySequence(kseq).toString() for kseq in keys])
+                action.setShortcutContext(QtCore.Qt.WidgetWithChildrenShortcut)
+
+            self._registered_action[registered_key] = action
+            return action
         
     # mouse and keyboard events
     # -------------------------
@@ -442,12 +461,13 @@ class TreeEditorWidget(_QGLViewer, _AbstractEditor):
             bbox = scene_bbox
             
         if bbox is None:
-            self.show_message('*** look_at error: bbox is None ***')
+            self.show_message('*** look_at error: bounding box is empty ***')
         else:
             self.camera().fitBoundingBox(_toVec(bbox.lowerLeftCorner),_toVec(bbox.upperRightCorner))
             self.updateGL()
                                                     
     def updateGL(self):
+        scene_bbox = self.get_boundingbox()  ## recompute if flaged
         _QGLViewer.updateGL(self)
         
     # dialog
