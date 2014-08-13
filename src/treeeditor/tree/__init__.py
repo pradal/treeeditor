@@ -100,7 +100,7 @@ class TreePresenter(_Presenter):
         self.selection = None
         
         if not isinstance(tree,_TreeModel):
-            if isinstance(tree,bool): # for call by Qt
+            if isinstance(tree,bool): # when called by Qt
                 tree = None
             self.model = self.create_model(tree=tree, presenter=self)
         else:

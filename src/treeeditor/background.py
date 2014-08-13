@@ -1,5 +1,11 @@
 """
 background Presenter for TreeEditor
+
+
+Possible improvement:
+  - put background stuff in editor
+  - and image&point views in image&point package
+  - merge pointSetView and CtrlPointView in some PointView class
 """
 from openalea.vpltk.qt import QtGui
 from openalea.plantgl  import all as _pgl
@@ -131,7 +137,8 @@ class PointSetView(_View):
             bbx = self.get_boundingbox()
             colorList = [(100+int(100*((i.x-bbx.getXMin())/bbx.getXRange())),
                           100+int(100*((i.y-bbx.getYMin())/bbx.getYRange())),
-                          100+int(100*((i.z-bbx.getZMin())/bbx.getZRange())),0) for i in self.points.pointList]
+                          100+int(100*((i.z-bbx.getZMin())/bbx.getZRange())),0) 
+                          for i in self.points.pointList]
             self.points.colorList = colorList
             
         ## self.filter_points()  w.r.t mtg...
