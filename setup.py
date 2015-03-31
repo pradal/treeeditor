@@ -108,7 +108,6 @@ setup(
         #'wralea' : ['treeeditor = vplants.treeeditor_wralea' if has_project else 'treeeditor = treeeditor_wralea' ],
          'gui_scripts':  ['TreeEditor = treeeditor.editor:main'],
          'oalab.applet': ['TreeEditorApp = treeeditor.plugins:TreeEditorWidgetPlugin'],
-         'oalab.lab':    ['TreeEditorLab = treeeditor.plugins:TreeEditorLabPlugin']
         },
 
     )
