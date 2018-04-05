@@ -1,0 +1,35 @@
+{% set version = "1.0.0" %}
+
+package:
+  name: openalea.treeeditor
+  version: {{ version }}
+
+source:
+  path: ..
+
+build:
+  preserve_egg_dir: True
+  number: 0
+  script: python setup.py install
+
+requirements:
+  build:
+    - openalea.deploy
+  run:
+    - python
+    - openalea.oalab
+    - openalea.vpltk
+    - openalea.mtg
+    - pyqglviewer
+    - numpy
+    - scipy
+
+test:
+  imports:
+    - treeeditor
+
+about:
+  home: http://github.com/openalea-incubator/treeeditor
+  license: Cecill License
+  summary: User interfaces to visualize and edit tree struture (stored as mtg)
+
